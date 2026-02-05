@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 enum CenterTab: String, CaseIterable {
     case activity
@@ -66,6 +67,7 @@ class AppState {
     var selectedImageIndex: Int = 0
     var isRemovingBackground = false
     var toasts: [AppToast] = []
+    var unseenCompletionCount = 0
 
     // MARK: - Library Multi-Selection
     var selectedLibraryImageIDs: Set<String> = []
@@ -418,6 +420,21 @@ class AppState {
         }
     }
 
+    func notifyJobCompleted(title: String, message: String) {
+        let center = UNUserNotificationCenter.current()
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = message
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        center.add(request)
+
+        if !NSApplication.shared.isActive {
+            unseenCompletionCount += 1
+            NSApplication.shared.dockTile.badgeLabel = "\(unseenCompletionCount)"
+        }
+    }
+
     // MARK: - Reuse Settings
 
     func loadSettings(from job: GenerationJob) {
@@ -448,6 +465,11 @@ class AppState {
             }
         }
         commitUndoCheckpoint()
+    }
+
+    func retryJob(_ job: GenerationJob) {
+        loadSettings(from: job)
+        generateImage()
     }
 
     // MARK: - Project Operations
@@ -655,6 +677,7 @@ class AppState {
                 imageVersion += 1
                 statusMessage = "Saved \(saved.imagePaths.count) image\(saved.imagePaths.count == 1 ? "" : "s")"
                 showToast("Image generated", icon: "checkmark.circle", style: .success)
+                notifyJobCompleted(title: "Image Generated", message: statusMessage)
                 saveActivity()
             } catch {
                 if job.status != .cancelled {
@@ -664,6 +687,7 @@ class AppState {
                     errorMessage = error.localizedDescription
                     statusMessage = "Generation failed."
                     showToast("Generation failed", icon: "xmark.circle", style: .error)
+                    notifyJobCompleted(title: "Generation Failed", message: error.localizedDescription)
                 }
                 saveActivity()
             }
@@ -758,6 +782,7 @@ class AppState {
                 statusMessage = "Background removed"
                 isRemovingBackground = false
                 showToast("Background removed", icon: "checkmark.circle", style: .success)
+                notifyJobCompleted(title: "Background Removed", message: "Background removed successfully")
                 saveActivity()
             } catch {
                 bgJob.completedAt = Date()
@@ -767,6 +792,7 @@ class AppState {
                 statusMessage = "Background removal failed."
                 isRemovingBackground = false
                 showToast("Background removal failed", icon: "xmark.circle", style: .error)
+                notifyJobCompleted(title: "Background Removal Failed", message: error.localizedDescription)
                 saveActivity()
             }
         }

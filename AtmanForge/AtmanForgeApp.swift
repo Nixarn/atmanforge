@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 @main
 struct AtmanForgeApp: App {
@@ -8,6 +9,13 @@ struct AtmanForgeApp: App {
         WindowGroup {
             ContentView()
                 .environment(appState)
+                .onAppear {
+                    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    appState.unseenCompletionCount = 0
+                    NSApplication.shared.dockTile.badgeLabel = ""
+                }
         }
         .commands {
             ProjectCommands(appState: appState)

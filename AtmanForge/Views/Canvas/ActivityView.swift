@@ -118,6 +118,16 @@ struct ActivityView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(Color.accentColor)
+                        if job.status == .failed {
+                            Button {
+                                appState.retryJob(job)
+                            } label: {
+                                Label("Retry", systemImage: "arrow.clockwise")
+                                    .font(.caption2)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Color.accentColor)
+                        }
                     } else if job.status != .completed {
                         Text(job.progressText)
                             .font(.caption)
