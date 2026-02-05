@@ -306,20 +306,9 @@ struct ImageInspectorView: View {
         .padding(.vertical, 10)
     }
 
-    private func canCompare(_ job: GenerationJob) -> Bool {
-        guard job.referenceImagePaths.count == 1 else { return false }
-        guard let root = projectRoot else { return false }
-        let refURL = root.appendingPathComponent(job.referenceImagePaths[0])
-        guard let refSize = imageSize(url: refURL) else { return false }
-        let ratio = job.aspectRatio.ratio
-        let refAspect = Double(refSize.width) / Double(refSize.height)
-        let jobAspect = Double(ratio.w) / Double(ratio.h)
-        return abs(refAspect - jobAspect) / jobAspect < 0.05
-    }
-
     @ViewBuilder
     private func comparisonImageView(_ job: GenerationJob) -> some View {
-        if job.referenceImagePaths.isEmpty || job.model == .removeBackground || !canCompare(job) {
+        if job.referenceImagePaths.isEmpty || job.model == .removeBackground {
             fullImage(job)
         } else {
             comparisonSlider(job)
@@ -352,17 +341,15 @@ struct ImageInspectorView: View {
                         .font(.subheadline)
                         .fontWeight(.semibold)
                     Spacer()
-                    if canCompare(job) {
-                        Button {
-                            comparisonActive = true
-                            comparisonViewID = UUID()
-                        } label: {
-                            Text("Compare")
-                                .font(.caption)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Color.accentColor)
+                    Button {
+                        comparisonActive = true
+                        comparisonViewID = UUID()
+                    } label: {
+                        Text("Compare")
+                            .font(.caption)
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
                 }
 
                 ScrollView(.horizontal, showsIndicators: false) {
