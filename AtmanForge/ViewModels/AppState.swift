@@ -284,6 +284,75 @@ class AppState {
         selectedLibraryImageIDs.removeAll()
     }
 
+    #if os(macOS)
+    func exportSelectedImages() {
+        guard let root = projectManager.projectsRootURL else { return }
+
+        // Collect image paths to export
+        var imageURLs: [URL] = []
+
+        if selectedLibraryImageIDs.count > 1 {
+            // Multi-selection from library
+            for fileName in selectedLibraryImageIDs {
+                let url = root.appendingPathComponent("generations/\(fileName)")
+                if FileManager.default.fileExists(atPath: url.path) {
+                    imageURLs.append(url)
+                }
+            }
+        } else if let job = selectedImageJob, selectedImageIndex < job.savedImagePaths.count {
+            // Single selection from inspector
+            let url = root.appendingPathComponent(job.savedImagePaths[selectedImageIndex])
+            if FileManager.default.fileExists(atPath: url.path) {
+                imageURLs.append(url)
+            }
+        }
+
+        guard !imageURLs.isEmpty else { return }
+
+        if imageURLs.count == 1 {
+            // Single image: use save panel
+            let sourceURL = imageURLs[0]
+            let panel = NSSavePanel()
+            panel.title = "Export Image"
+            panel.nameFieldStringValue = sourceURL.lastPathComponent
+            panel.allowedContentTypes = [.png]
+
+            guard panel.runModal() == .OK, let destURL = panel.url else { return }
+            do {
+                let data = try Data(contentsOf: sourceURL)
+                try data.write(to: destURL)
+                statusMessage = "Exported to \(destURL.lastPathComponent)"
+                showToast("Image exported", icon: "checkmark.circle", style: .success)
+            } catch {
+                statusMessage = "Export failed: \(error.localizedDescription)"
+                showToast("Export failed", icon: "xmark.circle", style: .error)
+            }
+        } else {
+            // Multiple images: pick a folder
+            let panel = NSOpenPanel()
+            panel.title = "Export \(imageURLs.count) Images"
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.canCreateDirectories = true
+
+            guard panel.runModal() == .OK, let destFolder = panel.url else { return }
+            var exported = 0
+            for sourceURL in imageURLs {
+                let destURL = destFolder.appendingPathComponent(sourceURL.lastPathComponent)
+                do {
+                    let data = try Data(contentsOf: sourceURL)
+                    try data.write(to: destURL)
+                    exported += 1
+                } catch {
+                    // Continue exporting remaining images
+                }
+            }
+            statusMessage = "Exported \(exported) image\(exported == 1 ? "" : "s")"
+            showToast("Exported \(exported) image\(exported == 1 ? "" : "s")", icon: "checkmark.circle", style: .success)
+        }
+    }
+    #endif
+
     // MARK: - Library Multi-Selection
 
     /// Single click: clear set, select one, update inspector

@@ -89,6 +89,16 @@ struct ProjectCommands: Commands {
 
             Divider()
 
+            #if os(macOS)
+            Button("Export Image...") {
+                appState.exportSelectedImages()
+            }
+            .keyboardShortcut("e", modifiers: .command)
+            .disabled(appState.selectedImageJob == nil && appState.selectedLibraryImageIDs.isEmpty)
+            #endif
+
+            Divider()
+
             Button("Close Project") {
                 appState.closeProject()
             }

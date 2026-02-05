@@ -277,6 +277,16 @@ struct ImageInspectorView: View {
     private var multiSelectionActions: some View {
         VStack(spacing: 8) {
             Divider()
+            #if os(macOS)
+            Button {
+                appState.exportSelectedImages()
+            } label: {
+                Label("Export Selected", systemImage: "square.and.arrow.up")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            #endif
             Button(role: .destructive) {
                 appState.requestDeleteLibraryImages(appState.selectedLibraryImageIDs)
             } label: {
@@ -477,6 +487,12 @@ struct ImageInspectorView: View {
             Label("Show in Finder", systemImage: "folder")
         }
 
+        Button {
+            appState.exportSelectedImages()
+        } label: {
+            Label("Export", systemImage: "square.and.arrow.up")
+        }
+
         Divider()
         #endif
 
@@ -608,6 +624,15 @@ struct ImageInspectorView: View {
                 .controlSize(.regular)
 
                 #if os(macOS)
+                Button {
+                    appState.exportSelectedImages()
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+
                 Button {
                     guard imageIndex < job.savedImagePaths.count, let root = projectRoot else { return }
                     let imageURL = root.appendingPathComponent(job.savedImagePaths[imageIndex])
