@@ -170,14 +170,16 @@ struct ImageInspectorView: View {
             VStack(spacing: 0) {
                 header
                 Divider()
-                VStack(alignment: .leading, spacing: 16) {
-                    comparisonImageView(job)
-                    referenceImageThumbnails(job)
-                    metadataSection(job)
-                    Spacer()
-                    actionButtons(job)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        comparisonImageView(job)
+                        referenceImageThumbnails(job)
+                        metadataSection(job)
+                        actionButtons(job)
+                    }
+                    .padding(16)
                 }
-                .padding(16)
+                .scrollIndicators(.never)
             }
             .frame(width: 320)
             #if os(macOS)
@@ -218,12 +220,14 @@ struct ImageInspectorView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            VStack(alignment: .leading, spacing: 16) {
-                multiSelectionSummary
-                Spacer()
-                multiSelectionActions
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    multiSelectionSummary
+                    multiSelectionActions
+                }
+                .padding(16)
             }
-            .padding(16)
+            .scrollIndicators(.never)
         }
         .frame(width: 320)
         #if os(macOS)
