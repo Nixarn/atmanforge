@@ -271,6 +271,121 @@ class AppState {
         #endif
     }
 
+    /// Downscale an image so its longest edge fits within `maxSize`.
+    /// Returns `nil` if the image already fits (no downscaling needed).
+    private static func downscaleForBackgroundRemoval(_ data: Data, maxSize: Int = 1024) -> (downscaled: Data, originalWidth: Int, originalHeight: Int)? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            return nil
+        }
+        let origW = cgImage.width
+        let origH = cgImage.height
+        guard max(origW, origH) > maxSize else { return nil }
+
+        let scale = CGFloat(maxSize) / CGFloat(max(origW, origH))
+        let newW = Int(CGFloat(origW) * scale)
+        let newH = Int(CGFloat(origH) * scale)
+
+        guard let colorSpace = cgImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: newW, height: newH,
+                                 bitsPerComponent: 8, bytesPerRow: 0,
+                                 space: colorSpace,
+                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return nil
+        }
+        ctx.interpolationQuality = .high
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: newW, height: newH))
+        guard let downscaledCG = ctx.makeImage() else { return nil }
+
+        let mutableData = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(mutableData as CFMutableData, "public.png" as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(dest, downscaledCG, nil)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return (downscaled: mutableData as Data, originalWidth: origW, originalHeight: origH)
+    }
+
+    /// Extract the alpha channel from `resultData` as a grayscale mask,
+    /// upscale to original dimensions, and composite onto the original full-res image.
+    private static func extractAndApplyMask(resultData: Data, originalData: Data, originalWidth: Int, originalHeight: Int) -> Data? {
+        // Decode the API result to get its alpha channel
+        guard let resultSource = CGImageSourceCreateWithData(resultData as CFData, nil),
+              let resultCG = CGImageSourceCreateImageAtIndex(resultSource, 0, nil) else {
+            return nil
+        }
+        let rw = resultCG.width
+        let rh = resultCG.height
+
+        // Render API result into RGBA context to read alpha
+        guard let rgbaCtx = CGContext(data: nil, width: rw, height: rh,
+                                      bitsPerComponent: 8, bytesPerRow: rw * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return nil
+        }
+        rgbaCtx.draw(resultCG, in: CGRect(x: 0, y: 0, width: rw, height: rh))
+        guard let rgbaData = rgbaCtx.data else { return nil }
+
+        // Extract alpha bytes into a grayscale buffer
+        let pixelCount = rw * rh
+        let alphaBytes = UnsafeMutablePointer<UInt8>.allocate(capacity: pixelCount)
+        defer { alphaBytes.deallocate() }
+        let src = rgbaData.bindMemory(to: UInt8.self, capacity: pixelCount * 4)
+        for i in 0..<pixelCount {
+            alphaBytes[i] = src[i * 4 + 3] // alpha is the 4th byte in RGBA
+        }
+
+        // Create a small grayscale mask image
+        guard let graySpace = CGColorSpace(name: CGColorSpace.linearGray),
+              let maskCtx = CGContext(data: alphaBytes, width: rw, height: rh,
+                                     bitsPerComponent: 8, bytesPerRow: rw,
+                                     space: graySpace,
+                                     bitmapInfo: CGImageAlphaInfo.none.rawValue),
+              let smallMask = maskCtx.makeImage() else {
+            return nil
+        }
+
+        // Upscale the grayscale mask to original dimensions with bicubic interpolation
+        guard let upscaleCtx = CGContext(data: nil, width: originalWidth, height: originalHeight,
+                                         bitsPerComponent: 8, bytesPerRow: originalWidth,
+                                         space: graySpace,
+                                         bitmapInfo: CGImageAlphaInfo.none.rawValue) else {
+            return nil
+        }
+        upscaleCtx.interpolationQuality = .high
+        upscaleCtx.draw(smallMask, in: CGRect(x: 0, y: 0, width: originalWidth, height: originalHeight))
+        guard let fullMask = upscaleCtx.makeImage() else { return nil }
+
+        // Decode original full-res image
+        guard let origSource = CGImageSourceCreateWithData(originalData as CFData, nil),
+              let origCG = CGImageSourceCreateImageAtIndex(origSource, 0, nil) else {
+            return nil
+        }
+
+        // Composite: clip original through the upscaled mask
+        guard let origColorSpace = origCG.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB),
+              let compCtx = CGContext(data: nil, width: originalWidth, height: originalHeight,
+                                     bitsPerComponent: 8, bytesPerRow: 0,
+                                     space: origColorSpace,
+                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return nil
+        }
+        let fullRect = CGRect(x: 0, y: 0, width: originalWidth, height: originalHeight)
+        compCtx.clip(to: fullRect, mask: fullMask)
+        compCtx.draw(origCG, in: fullRect)
+        guard let compositedCG = compCtx.makeImage() else { return nil }
+
+        // Encode as PNG
+        let pngData = NSMutableData()
+        guard let pngDest = CGImageDestinationCreateWithData(pngData as CFMutableData, "public.png" as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(pngDest, compositedCG, nil)
+        guard CGImageDestinationFinalize(pngDest) else { return nil }
+        return pngData as Data
+    }
+
     // MARK: - Image Inspector
 
     func selectImage(job: GenerationJob, index: Int) {
@@ -825,7 +940,26 @@ class AppState {
 
         Task {
             do {
-                let resultData = try await provider.removeBackground(imageData: imageData)
+                // Downscale if the image exceeds the model's max input size
+                let downscaleInfo = Self.downscaleForBackgroundRemoval(imageData)
+                let apiInput = downscaleInfo?.downscaled ?? imageData
+
+                let resultData = try await provider.removeBackground(imageData: apiInput)
+
+                // If we downscaled, extract mask and composite onto original full-res image
+                let finalData: Data
+                if let info = downscaleInfo,
+                   let composited = Self.extractAndApplyMask(
+                       resultData: resultData,
+                       originalData: imageData,
+                       originalWidth: info.originalWidth,
+                       originalHeight: info.originalHeight
+                   ) {
+                    finalData = composited
+                } else {
+                    finalData = resultData
+                }
+
                 let meta = ImageMeta(
                     prompt: bgJob.prompt,
                     model: .removeBackground,
@@ -838,9 +972,9 @@ class AppState {
                     referenceHashes: refResult.hashes,
                     createdAt: Date()
                 )
-                let saved = try projectManager.saveGeneratedImages([resultData], toFolder: projectRoot, meta: meta)
+                let saved = try projectManager.saveGeneratedImages([finalData], toFolder: projectRoot, meta: meta)
 
-                bgJob.resultImageData = [resultData]
+                bgJob.resultImageData = [finalData]
                 bgJob.savedImagePaths = saved.imagePaths
                 bgJob.thumbnailPaths = saved.thumbnailPaths
                 bgJob.completedAt = Date()
