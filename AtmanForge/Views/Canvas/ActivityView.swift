@@ -218,6 +218,8 @@ struct ActivityView: View {
                         Text(error)
                             .font(.caption2)
                             .foregroundStyle(.red)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                             .textSelection(.enabled)
                         Button {
                             copyToClipboard(error)
