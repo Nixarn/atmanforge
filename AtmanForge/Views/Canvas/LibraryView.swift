@@ -18,10 +18,11 @@ struct LibraryImageEntry: Identifiable {
     // Keep job reference for selection / actions
     let job: GenerationJob?
     let imageIndex: Int
+    let fileDate: Date
 
     var prompt: String { meta?.prompt ?? job?.prompt ?? "" }
     var model: AIModel { meta?.model ?? job?.model ?? .gemini25 }
-    var createdAt: Date { meta?.createdAt ?? job?.createdAt ?? Date.distantPast }
+    var createdAt: Date { meta?.createdAt ?? job?.createdAt ?? fileDate }
 
     var resolutionString: String {
         guard pixelWidth > 0 && pixelHeight > 0 else { return "—" }
@@ -93,6 +94,8 @@ struct LibraryView: View {
             // Find matching job for selection
             let match = jobLookup[relativePath]
 
+            let fileDate = attrs?[.modificationDate] as? Date ?? Date()
+
             return LibraryImageEntry(
                 id: fileName,
                 imagePath: relativePath,
@@ -103,7 +106,8 @@ struct LibraryView: View {
                 pixelHeight: ph,
                 meta: meta,
                 job: match?.0,
-                imageIndex: match?.1 ?? 0
+                imageIndex: match?.1 ?? 0,
+                fileDate: fileDate
             )
         }
 
@@ -621,6 +625,14 @@ struct LibraryView: View {
             } label: {
                 Label("Show in Finder", systemImage: "folder")
             }
+
+            #if os(macOS)
+            Button {
+                appState.exportSelectedImages()
+            } label: {
+                Label(isMulti ? "Export \(selectedCount) Images" : "Export", systemImage: "square.and.arrow.up")
+            }
+            #endif
 
             Divider()
 
