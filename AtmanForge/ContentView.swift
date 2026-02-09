@@ -19,11 +19,6 @@ struct ContentView: View {
 
     private var mainLayout: some View {
         VStack(spacing: 0) {
-            CanvasToolbar()
-                .padding(.vertical, 4)
-
-            Divider()
-
             HStack(spacing: 0) {
                 GenerationSidebar()
 
