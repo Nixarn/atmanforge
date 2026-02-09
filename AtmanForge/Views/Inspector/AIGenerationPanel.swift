@@ -2,6 +2,9 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 import ImageIO
+#if os(macOS)
+import AppKit
+#endif
 
 struct AIGenerationPanel: View {
     @Environment(AppState.self) private var appState
@@ -110,6 +113,11 @@ struct AIGenerationPanel: View {
                                     } label: {
                                         Label("Sketch", systemImage: "pencil.tip.crop.circle")
                                     }
+                                    Button {
+                                        pasteFromClipboard()
+                                    } label: {
+                                        Label("Paste", systemImage: "doc.on.clipboard")
+                                    }
                                     #endif
                                 }
                             }
@@ -118,11 +126,31 @@ struct AIGenerationPanel: View {
                     }
                 }
                 .fixedSize(horizontal: false, vertical: true)
+                .contentShape(Rectangle())
+                .contextMenu {
+                    #if os(macOS)
+                    Button {
+                        pasteFromClipboard()
+                    } label: {
+                        Label("Paste", systemImage: "doc.on.clipboard")
+                    }
+                    #endif
+                }
                 .onDrop(of: [.image, .fileURL], isTargeted: $isDropTargeted) { providers in
                     handleDrop(providers)
                 }
 
                 HStack {
+                    #if os(macOS)
+                    Button {
+                        browseForImages()
+                    } label: {
+                        Label("Browse", systemImage: "plus.circle")
+                            .font(.subheadline)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(appState.referenceImages.count >= appState.selectedModel.maxReferenceImages)
+                    #else
                     PhotosPicker(
                         selection: $selectedPhotos,
                         maxSelectionCount: max(appState.selectedModel.maxReferenceImages - appState.referenceImages.count, 1),
@@ -144,6 +172,7 @@ struct AIGenerationPanel: View {
                             selectedPhotos = []
                         }
                     }
+                    #endif
 
                     Spacer()
 
@@ -196,25 +225,27 @@ struct AIGenerationPanel: View {
                 }
             }
 
-            HStack {
-                Text("Images")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("\(appState.imageCount)")
-                    .font(.subheadline)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, alignment: .trailing)
-                Slider(
-                    value: Binding(
-                        get: { Double(appState.imageCount) },
-                        set: { appState.imageCount = Int($0) }
-                    ),
-                    in: 1...Double(appState.selectedModel.maxImageCount),
-                    step: 1
-                )
-                .frame(width: 100)
+            if appState.selectedModel.maxImageCount > 1 {
+                HStack {
+                    Text("Images")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(appState.imageCount)")
+                        .font(.subheadline)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24, alignment: .trailing)
+                    Slider(
+                        value: Binding(
+                            get: { Double(appState.imageCount) },
+                            set: { appState.imageCount = Int($0) }
+                        ),
+                        in: 1...Double(appState.selectedModel.maxImageCount),
+                        step: 1
+                    )
+                    .frame(width: 100)
+                }
             }
 
             if appState.selectedModel == .gptImage15 {
@@ -290,6 +321,8 @@ struct AIGenerationPanel: View {
                     Text(error)
                         .font(.caption)
                         .foregroundStyle(.red)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                         .textSelection(.enabled)
                     Button {
                         #if os(macOS)
@@ -361,6 +394,50 @@ struct AIGenerationPanel: View {
             appState.commitUndoCheckpoint()
         }
     }
+
+    #if os(macOS)
+    private func browseForImages() {
+        let remaining = appState.selectedModel.maxReferenceImages - appState.referenceImages.count
+        guard remaining > 0 else { return }
+
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = remaining > 1
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.image]
+        panel.title = "Choose Reference Images"
+
+        guard panel.runModal() == .OK else { return }
+
+        var images: [Data] = []
+        for url in panel.urls.prefix(remaining) {
+            if let data = try? Data(contentsOf: url) {
+                images.append(data)
+            }
+        }
+        if !images.isEmpty {
+            appState.addReferenceImages(images)
+        }
+    }
+
+    private func pasteFromClipboard() {
+        let pasteboard = NSPasteboard.general
+        guard let images = pasteboard.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage],
+              !images.isEmpty else { return }
+
+        var imageDataArray: [Data] = []
+        for image in images {
+            if let tiffData = image.tiffRepresentation,
+               let bitmap = NSBitmapImageRep(data: tiffData),
+               let pngData = bitmap.representation(using: .png, properties: [:]) {
+                imageDataArray.append(pngData)
+            }
+        }
+
+        if !imageDataArray.isEmpty {
+            appState.addReferenceImages(imageDataArray)
+        }
+    }
+    #endif
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         let remaining = appState.selectedModel.maxReferenceImages - appState.referenceImages.count
