@@ -10,6 +10,7 @@ struct GenerationRequest {
     let gptQuality: GPTQuality?
     let gptBackground: GPTBackground?
     let gptInputFidelity: GPTInputFidelity?
+    let fluxPromptStrength: Double?
 }
 
 struct GenerationResult {
@@ -17,5 +18,5 @@ struct GenerationResult {
 }
 
 protocol AIProvider {
-    func generateImage(request: GenerationRequest, parallelDelay: TimeInterval, onPredictionCreated: @Sendable @escaping (String) -> Void) async throws -> GenerationResult
+    func generateImage(request: GenerationRequest, parallelDelay: TimeInterval, onPredictionCreated: @Sendable @escaping (String, String?) -> Void) async throws -> GenerationResult
 }

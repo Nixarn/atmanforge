@@ -102,6 +102,7 @@ struct ImagePreviewView: View {
     let imageURL: URL
     var modelName: String?
     var prompt: String?
+    var requestParamsJSON: String?
     var onClose: () -> Void
 
     var body: some View {
@@ -109,27 +110,41 @@ struct ImagePreviewView: View {
             if let nsImage = NSImage(contentsOf: imageURL) {
                 Image(nsImage: nsImage)
                     .resizable()
-                    .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .aspectRatio(1, contentMode: .fit)
             }
             Divider()
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    if let modelName {
-                        Text(modelName)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let modelName {
+                            Text(modelName)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        if let prompt, !prompt.isEmpty {
+                            Text(prompt)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
                     }
-                    if let prompt, !prompt.isEmpty {
-                        Text(prompt)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
+                    Spacer()
+                    Button("Close") { onClose() }
+                        .keyboardShortcut(.cancelAction)
                 }
-                Spacer()
-                Button("Close") { onClose() }
-                    .keyboardShortcut(.cancelAction)
+                if let params = requestParamsJSON, !params.isEmpty {
+                    ScrollView(.vertical) {
+                        Text(params)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 140)
+                    .padding(8)
+                    .background(Color.secondary.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
             }
             .padding()
             .background(.bar)
@@ -146,6 +161,7 @@ struct ImageInspectorView: View {
     @State private var comparisonActive: Bool = false
     @State private var comparisonViewID: UUID = UUID()
     @State private var previewImageURL: URL?
+    @State private var showRequestDetails: Bool = false
 
     private var job: GenerationJob? {
         appState.selectedImageJob
@@ -164,54 +180,73 @@ struct ImageInspectorView: View {
     }
 
     var body: some View {
-        if isMultiSelection {
-            multiSelectionView
-        } else if let job = job {
-            VStack(spacing: 0) {
-                header
-                Divider()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        comparisonImageView(job)
-                        referenceImageThumbnails(job)
-                        metadataSection(job)
-                        actionButtons(job)
+        Group {
+            if isMultiSelection {
+                multiSelectionView
+            } else if let job = job {
+                VStack(spacing: 0) {
+                    header
+                    Divider()
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            comparisonImageView(job)
+                            referenceImageThumbnails(job)
+                            metadataSection(job)
+                            if showRequestDetails, let params = job.requestParamsJSON, !params.isEmpty {
+                                ScrollView(.vertical) {
+                                    Text(params)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .frame(maxHeight: 120)
+                                .padding(8)
+                                .background(Color.secondary.opacity(0.08))
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                            }
+                            Spacer()
+                            actionButtons(job)
+                        }
+                        .padding(16)
                     }
-                    .padding(16)
+                    .scrollIndicators(.never)
                 }
-                .scrollIndicators(.never)
-            }
-            .frame(width: 320)
-            #if os(macOS)
-            .background(Color(nsColor: .windowBackgroundColor))
-            #else
-            .background(Color(uiColor: .systemBackground))
-            #endif
-            .onChange(of: appState.selectedImageJob?.id) { _, _ in
-                selectedReferenceIndex = 0
-                comparisonActive = false
-                comparisonViewID = UUID()
-            }
-            .onChange(of: appState.selectedImageIndex) { _, _ in
-                selectedReferenceIndex = 0
-                comparisonActive = false
-                comparisonViewID = UUID()
-            }
-            .sheet(isPresented: Binding(
-                get: { previewImageURL != nil },
-                set: { if !$0 { previewImageURL = nil } }
-            )) {
-                if let url = previewImageURL {
-                    ImagePreviewView(
-                        imageURL: url,
-                        modelName: job.model.displayName,
-                        prompt: job.prompt
-                    ) {
-                        previewImageURL = nil
+                .frame(width: 320)
+                #if os(macOS)
+                .background(Color(nsColor: .windowBackgroundColor))
+                #else
+                .background(Color(uiColor: .systemBackground))
+                #endif
+                .onChange(of: appState.selectedImageJob?.id) { _, _ in
+                    selectedReferenceIndex = 0
+                    comparisonActive = false
+                    comparisonViewID = UUID()
+                }
+                .onChange(of: appState.selectedImageIndex) { _, _ in
+                    selectedReferenceIndex = 0
+                    comparisonActive = false
+                    comparisonViewID = UUID()
+                }
+                .sheet(isPresented: Binding(
+                    get: { previewImageURL != nil },
+                    set: { if !$0 { previewImageURL = nil } }
+                )) {
+                    if let url = previewImageURL {
+                        ImagePreviewView(
+                            imageURL: url,
+                            modelName: job.model.displayName,
+                            prompt: job.prompt,
+                            requestParamsJSON: job.requestParamsJSON
+                        ) {
+                            previewImageURL = nil
+                        }
                     }
                 }
             }
         }
+        #if os(macOS)
+        .quickLookKeyHandler(appState: appState)
+        #endif
     }
 
     // MARK: - Multi-Selection View
@@ -304,8 +339,20 @@ struct ImageInspectorView: View {
 
     private var header: some View {
         HStack {
-            Text("Inspector")
-                .font(.headline)
+            HStack(spacing: 6) {
+                Text("Inspector")
+                    .font(.headline)
+                if let params = appState.selectedImageJob?.requestParamsJSON, !params.isEmpty {
+                    Button {
+                        showRequestDetails.toggle()
+                    } label: {
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .help(showRequestDetails ? "Hide request" : "Show request")
+                }
+            }
             Spacer()
             Button {
                 appState.clearImageSelection()
@@ -343,6 +390,9 @@ struct ImageInspectorView: View {
                 contextMenuActions: { imageContextMenu(imageURL: generatedURL) }
             )
             .id(comparisonViewID)
+            .onHover { isHovered in
+                updateHoveredPreviewURL(isHovered: isHovered, previewURL: generatedURL)
+            }
         }
     }
 
@@ -383,6 +433,17 @@ struct ImageInspectorView: View {
         }
     }
 
+    private func updateHoveredPreviewURL(isHovered: Bool, previewURL: URL) {
+        if isHovered {
+            appState.hoveredPreviewURL = previewURL
+            #if os(macOS)
+            QuickLookController.shared.updateIfVisible(url: previewURL)
+            #endif
+        } else if appState.hoveredPreviewURL == previewURL {
+            appState.hoveredPreviewURL = nil
+        }
+    }
+
     @ViewBuilder
     private func referenceThumbnail(url: URL, isSelected: Bool) -> some View {
         #if os(macOS)
@@ -396,6 +457,9 @@ struct ImageInspectorView: View {
                     RoundedRectangle(cornerRadius: 4)
                         .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
                 )
+                .onHover { isHovered in
+                    updateHoveredPreviewURL(isHovered: isHovered, previewURL: url)
+                }
         }
         #else
         if let data = try? Data(contentsOf: url), let uiImage = UIImage(data: data) {
@@ -429,6 +493,9 @@ struct ImageInspectorView: View {
                     }
                     .contextMenu {
                         imageContextMenu(imageURL: imageURL)
+                    }
+                    .onHover { isHovered in
+                        updateHoveredPreviewURL(isHovered: isHovered, previewURL: imageURL)
                     }
             }
             #else
@@ -621,7 +688,16 @@ struct ImageInspectorView: View {
                 Button {
                     appState.loadSettings(from: job)
                 } label: {
-                    Label("Reuse Parameters", systemImage: "arrow.counterclockwise")
+                    Label("Retry", systemImage: "arrow.counterclockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+
+                Button {
+                    appState.loadSettingsCompatible(from: job)
+                } label: {
+                    Label("Reuse Parameters", systemImage: "doc.text.image")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
@@ -683,3 +759,4 @@ struct ImageInspectorView: View {
         return formatter.string(from: date)
     }
 }
+

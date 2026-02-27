@@ -14,6 +14,9 @@ struct ContentView: View {
         .overlay(alignment: .top) {
             ToastOverlay()
         }
+        #if os(macOS)
+        .quickLookKeyHandler(appState: appState)
+        #endif
         .navigationTitle(appState.projectName)
     }
 

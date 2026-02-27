@@ -11,15 +11,28 @@ class ReplicateProvider: AIProvider {
         self.apiKey = apiKey
     }
 
-    func generateImage(request: GenerationRequest, parallelDelay: TimeInterval = 5.0, onPredictionCreated: @Sendable @escaping (String) -> Void) async throws -> GenerationResult {
+    func generateImage(request: GenerationRequest, parallelDelay: TimeInterval = 5.0, onPredictionCreated: @Sendable @escaping (String, String?) -> Void) async throws -> GenerationResult {
         let input = try await buildInput(for: request)
+
+        // Build a sanitized JSON string for request params (exclude image bodies)
+        let sanitizedInput: [String: Any] = input.filter { key, _ in
+            key != "image" && key != "image_input" && key != "input_images"
+        }
+        let paramsJSON: String? = {
+            guard JSONSerialization.isValidJSONObject(["input": sanitizedInput]) else { return nil }
+            if let data = try? JSONSerialization.data(withJSONObject: ["input": sanitizedInput], options: [.prettyPrinted]),
+               let str = String(data: data, encoding: .utf8) {
+                return str
+            }
+            return nil
+        }()
 
         if request.model.supportsNativeImageCount || request.imageCount <= 1 {
             let prediction = try await createPrediction(
                 model: request.model.replicateModelID,
                 input: input
             )
-            onPredictionCreated(prediction.urls.cancel)
+            onPredictionCreated(prediction.urls.cancel, paramsJSON)
             let finalPrediction = try await pollPrediction(prediction)
             let allImageData = try await downloadImages(from: finalPrediction)
             return GenerationResult(imageDataArray: allImageData)
@@ -34,7 +47,7 @@ class ReplicateProvider: AIProvider {
                     model: request.model.replicateModelID,
                     input: input
                 )
-                onPredictionCreated(prediction.urls.cancel)
+                onPredictionCreated(prediction.urls.cancel, paramsJSON)
                 predictions.append(prediction)
             }
 
@@ -117,8 +130,17 @@ class ReplicateProvider: AIProvider {
 
         if !request.referenceImages.isEmpty {
             let fileURLs = try await uploadReferenceImages(request.referenceImages)
-            let key = request.model == .gptImage15 ? "input_images" : "image_input"
-            input[key] = fileURLs
+            switch request.model {
+            case .gptImage15:
+                input["input_images"] = fileURLs
+            case .qwenImage, .qwenImage2512, .flux2Pro, .flux2Max:
+                // Qwen and flux2 models expect a single image parameter named "image".
+                if let first = fileURLs.first {
+                    input["image"] = first
+                }
+            default:
+                input["image_input"] = fileURLs
+            }
         }
 
         if request.model.supportsNativeImageCount {
@@ -132,6 +154,31 @@ class ReplicateProvider: AIProvider {
         case .gemini30:
             if let resolution = request.resolution {
                 input["resolution"] = resolution.rawValue
+            }
+
+        case .qwenImage:
+            input["output_format"] = "png"
+            input["disable_safety_checker"] = true
+
+        case .qwenImage2512:
+            input["output_format"] = "png"
+			input["disable_safety_checker"] = true
+
+        case .zImageTurbo:
+            input["output_format"] = "png"
+
+        case .flux2Pro:
+            input["output_format"] = "png"
+            input["safety_tolerance"] = 5
+            if let strength = request.fluxPromptStrength {
+                input["prompt_strength"] = strength
+            }
+
+        case .flux2Max:
+            input["output_format"] = "png"
+            input["safety_tolerance"] = 5
+            if let strength = request.fluxPromptStrength {
+                input["prompt_strength"] = strength
             }
 
         case .gptImage15:
@@ -365,3 +412,4 @@ enum ReplicateError: LocalizedError {
         }
     }
 }
+
