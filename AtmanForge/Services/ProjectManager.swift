@@ -233,7 +233,7 @@ class ProjectManager {
         try imageData.write(to: canvas.imageURL)
     }
 
-    func saveGeneratedImages(_ imageDataArray: [Data], toFolder folder: URL, meta: ImageMeta? = nil) throws -> (imagePaths: [String], thumbnailPaths: [String]) {
+    func saveGeneratedImages(_ imageDataArray: [Data], toFolder folder: URL, meta: ImageMeta? = nil, thumbnailMaxSize: CGFloat = 128) throws -> (imagePaths: [String], thumbnailPaths: [String]) {
         let generationsDir = folder.appendingPathComponent("generations")
         let thumbnailsDir = folder.appendingPathComponent(".thumbnails")
         try fileManager.createDirectory(at: generationsDir, withIntermediateDirectories: true)
@@ -262,7 +262,7 @@ class ProjectManager {
             // Generate and save thumbnail
             let thumbPath = ".thumbnails/\(filename)"
             let thumbURL = folder.appendingPathComponent(thumbPath)
-            if let thumbnailData = generateThumbnail(from: pngData, maxSize: 256) {
+            if let thumbnailData = generateThumbnail(from: pngData, maxSize: thumbnailMaxSize) {
                 try thumbnailData.write(to: thumbURL)
                 thumbnailPaths.append(thumbPath)
             }
@@ -393,6 +393,70 @@ class ProjectManager {
 
         return thumbImage?.pngData()
         #endif
+    }
+
+    /// Regenerate thumbnails whose longest dimension doesn't match `maxSize`.
+    /// Calls `progress` with 0.0–1.0 after each file. Returns the number of files migrated.
+    @discardableResult
+    func migrateThumbnails(in folder: URL, maxSize: CGFloat, progress: @Sendable (Double) -> Void) -> Int {
+        let thumbnailsDir = folder.appendingPathComponent(".thumbnails")
+        let generationsDir = folder.appendingPathComponent("generations")
+        guard let files = try? fileManager.contentsOfDirectory(at: thumbnailsDir, includingPropertiesForKeys: nil) else { return 0 }
+
+        let pngFiles = files.filter { $0.pathExtension.lowercased() == "png" }
+
+        // First pass: find files needing resize (lightweight header-only check)
+        var needsResize: [(thumbURL: URL, fullURL: URL)] = []
+        let maxSizeInt = Int(maxSize)
+        for thumbURL in pngFiles {
+            guard let source = CGImageSourceCreateWithURL(thumbURL as CFURL, nil),
+                  let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let pw = props[kCGImagePropertyPixelWidth] as? Int,
+                  let ph = props[kCGImagePropertyPixelHeight] as? Int else { continue }
+
+            let longest = max(pw, ph)
+
+            // Check if the full source image exists and is large enough to warrant resizing
+            let fullURL = generationsDir.appendingPathComponent(thumbURL.lastPathComponent)
+            guard fileManager.fileExists(atPath: fullURL.path) else { continue }
+
+            // If the source image's longest edge is smaller than maxSize, the thumbnail
+            // should match the source (no upscaling). Only flag if the source is >= maxSize
+            // and the thumbnail doesn't match the target, or if the thumbnail is larger than maxSize.
+            if longest > maxSizeInt + 2 {
+                // Thumbnail is oversized — always regenerate
+            } else if longest < maxSizeInt - 2 {
+                // Thumbnail is smaller than target — check if source could produce a larger one
+                guard let fullSource = CGImageSourceCreateWithURL(fullURL as CFURL, nil),
+                      let fullProps = CGImageSourceCopyPropertiesAtIndex(fullSource, 0, nil) as? [CFString: Any],
+                      let fw = fullProps[kCGImagePropertyPixelWidth] as? Int,
+                      let fh = fullProps[kCGImagePropertyPixelHeight] as? Int else { continue }
+                let fullLongest = max(fw, fh)
+                // Source is large enough that thumbnail should be at maxSize but isn't
+                guard fullLongest >= maxSizeInt else { continue }
+            } else {
+                // Within tolerance of target — no resize needed
+                continue
+            }
+
+            needsResize.append((thumbURL: thumbURL, fullURL: fullURL))
+        }
+
+        guard !needsResize.isEmpty else { return 0 }
+
+        let total = Double(needsResize.count)
+        for (i, item) in needsResize.enumerated() {
+            guard let fullData = try? Data(contentsOf: item.fullURL),
+                  let newThumb = generateThumbnail(from: fullData, maxSize: maxSize) else {
+                progress(Double(i + 1) / total)
+                continue
+            }
+            try? newThumb.write(to: item.thumbURL)
+            ThumbnailCache.shared.invalidate(url: item.thumbURL)
+            progress(Double(i + 1) / total)
+        }
+
+        return needsResize.count
     }
 
     // MARK: - Activity Persistence

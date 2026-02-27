@@ -79,10 +79,22 @@ class AppState {
     var projectPreferences = ProjectPreferences()
 
     // MARK: - App Settings
+    var hasAPIKey: Bool = false
+
     var parallelRequestDelay: TimeInterval {
         get { UserDefaults.standard.object(forKey: "parallelRequestDelay") as? TimeInterval ?? 5.0 }
         set { UserDefaults.standard.set(newValue, forKey: "parallelRequestDelay") }
     }
+
+    var thumbnailMaxPixelSize: Int {
+        get {
+            let stored = UserDefaults.standard.integer(forKey: "thumbnailMaxPixelSize")
+            return stored > 0 ? stored : 128
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "thumbnailMaxPixelSize") }
+    }
+
+    var thumbnailMigrationProgress: Double?
 
     var hiddenModels: Set<String> {
         get { Set(UserDefaults.standard.stringArray(forKey: "hiddenModels") ?? []) }
@@ -128,6 +140,12 @@ class AppState {
     init() {
         hasProjectsRoot = ProjectManager.shared.projectsRootURL != nil
         lastCommittedSnapshot = currentSnapshot()
+        refreshAPIKeyStatus()
+    }
+
+    func refreshAPIKeyStatus() {
+        let key = KeychainManager.load(key: "replicate_api_key")
+        hasAPIKey = key != nil && !key!.isEmpty
     }
 
     var selectedProject: Project? {
@@ -928,7 +946,7 @@ class AppState {
                     referenceHashes: referenceHashes,
                     createdAt: Date()
                 )
-                let saved = try projectManager.saveGeneratedImages(result.imageDataArray, toFolder: projectRoot, meta: meta)
+                let saved = try projectManager.saveGeneratedImages(result.imageDataArray, toFolder: projectRoot, meta: meta, thumbnailMaxSize: CGFloat(thumbnailMaxPixelSize))
 
                 job.resultImageData = result.imageDataArray
                 job.savedImagePaths = saved.imagePaths
@@ -1049,7 +1067,7 @@ class AppState {
                     referenceHashes: refResult.hashes,
                     createdAt: Date()
                 )
-                let saved = try projectManager.saveGeneratedImages([finalData], toFolder: projectRoot, meta: meta)
+                let saved = try projectManager.saveGeneratedImages([finalData], toFolder: projectRoot, meta: meta, thumbnailMaxSize: CGFloat(thumbnailMaxPixelSize))
 
                 bgJob.resultImageData = [finalData]
                 bgJob.savedImagePaths = saved.imagePaths
@@ -1124,7 +1142,6 @@ class AppState {
         projectManager.setProjectsRoot(url)
         hasProjectsRoot = true
         loadProjects()
-        loadActivity()
     }
 
     func loadActivity() {
@@ -1133,6 +1150,37 @@ class AppState {
         // Merge: keep any in-flight jobs, prepend loaded history
         let inFlight = generationJobs.filter { $0.status == .pending || $0.status == .running }
         generationJobs = inFlight + loaded
+
+        let lastMigrated = UserDefaults.standard.integer(forKey: "thumbnailLastMigratedSize")
+        if lastMigrated != thumbnailMaxPixelSize {
+            migrateThumbnailsIfNeeded()
+        }
+    }
+
+    func migrateThumbnailsIfNeeded() {
+        guard let root = projectManager.projectsRootURL else { return }
+        let maxSize = CGFloat(thumbnailMaxPixelSize)
+        let currentSetting = thumbnailMaxPixelSize
+        Task.detached { [projectManager] in
+            var didShowProgress = false
+            let count = projectManager.migrateThumbnails(in: root, maxSize: maxSize) { progress in
+                Task { @MainActor [weak self] in
+                    didShowProgress = true
+                    self?.thumbnailMigrationProgress = progress
+                }
+            }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                if count > 0 {
+                    ThumbnailCache.shared.clearAll()
+                    self.imageVersion += 1
+                }
+                if didShowProgress || self.thumbnailMigrationProgress != nil {
+                    self.thumbnailMigrationProgress = nil
+                }
+                UserDefaults.standard.set(currentSetting, forKey: "thumbnailLastMigratedSize")
+            }
+        }
     }
 
     func saveActivity() {

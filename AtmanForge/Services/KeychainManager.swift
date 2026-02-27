@@ -1,64 +1,70 @@
 import Foundation
-import Security
+import CryptoKit
 
+/// Stores secrets in Application Support using AES-GCM encryption with a
+/// device-stable key. Works without code signing or keychain entitlements.
 enum KeychainManager {
-    private static let service = "com.turbolynx.AtmanForge"
+    private static let bundleID = "com.turbolynx.AtmanForge"
+
+    private static var storageDir: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent(bundleID)
+    }
 
     static func save(key: String, value: String) throws {
         guard let data = value.data(using: .utf8) else { return }
-
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
-        ]
-
-        // Delete existing item first
-        SecItemDelete(query as CFDictionary)
-
-        var addQuery = query
-        addQuery[kSecValueData as String] = data
-
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw KeychainError.saveFailed(status)
-        }
+        let dir = storageDir
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let encrypted = try encrypt(data)
+        try encrypted.write(to: dir.appendingPathComponent(key))
     }
 
     static func load(key: String) -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else {
+        let url = storageDir.appendingPathComponent(key)
+        guard let encrypted = try? Data(contentsOf: url),
+              let decrypted = try? decrypt(encrypted) else {
             return nil
         }
-        return String(data: data, encoding: .utf8)
+        return String(data: decrypted, encoding: .utf8)
     }
 
     static func delete(key: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
-        ]
-        SecItemDelete(query as CFDictionary)
+        let url = storageDir.appendingPathComponent(key)
+        try? FileManager.default.removeItem(at: url)
     }
-}
 
-enum KeychainError: LocalizedError {
-    case saveFailed(OSStatus)
+    // MARK: - Encryption
 
-    var errorDescription: String? {
-        switch self {
-        case .saveFailed(let status):
-            return "Keychain save failed with status \(status)"
+    private static var encryptionKey: SymmetricKey {
+        // Derive a stable key from hardware UUID + bundle ID
+        let seed = (hardwareUUID() + bundleID).data(using: .utf8)!
+        let hash = SHA256.hash(data: seed)
+        return SymmetricKey(data: hash)
+    }
+
+    private static func encrypt(_ data: Data) throws -> Data {
+        let sealed = try AES.GCM.seal(data, using: encryptionKey)
+        guard let combined = sealed.combined else {
+            throw CryptoKitError.underlyingCoreCryptoError(error: -1)
         }
+        return combined
+    }
+
+    private static func decrypt(_ data: Data) throws -> Data {
+        let box = try AES.GCM.SealedBox(combined: data)
+        return try AES.GCM.open(box, using: encryptionKey)
+    }
+
+    private static func hardwareUUID() -> String {
+        #if os(macOS)
+        let service = IOServiceGetMatchingService(kIOMasterPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
+        defer { IOObjectRelease(service) }
+        if let uuid = IORegistryEntryCreateCFProperty(service, "IOPlatformUUID" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String {
+            return uuid
+        }
+        return "fallback-uuid"
+        #else
+        return UIDevice.current.identifierForVendor?.uuidString ?? "fallback-uuid"
+        #endif
     }
 }

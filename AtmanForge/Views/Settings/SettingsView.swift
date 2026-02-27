@@ -4,6 +4,7 @@ struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var replicateKey: String = ""
+    @State private var savedKey: String = ""
     @State private var rootFolderPath: String = ""
     @State private var showSaveConfirmation = false
 
@@ -24,16 +25,23 @@ struct SettingsView: View {
                 Section("API Keys") {
                     SecureField("Replicate API Key", text: $replicateKey)
                         .textFieldStyle(.roundedBorder)
-
-                    Button("Save API Key") {
-                        do {
-                            try KeychainManager.save(key: "replicate_api_key", value: replicateKey)
-                            showSaveConfirmation = true
-                        } catch {
-                            appState.statusMessage = "Failed to save API key: \(error.localizedDescription)"
+                        .onChange(of: replicateKey) {
+                            showSaveConfirmation = false
                         }
+
+                    if replicateKey != savedKey {
+                        Button("Save API Key") {
+                            do {
+                                try KeychainManager.save(key: "replicate_api_key", value: replicateKey)
+                                savedKey = replicateKey
+                                showSaveConfirmation = true
+                                appState.refreshAPIKeyStatus()
+                            } catch {
+                                appState.statusMessage = "Failed to save API key: \(error.localizedDescription)"
+                            }
+                        }
+                        .disabled(replicateKey.isEmpty)
                     }
-                    .disabled(replicateKey.isEmpty)
 
                     if showSaveConfirmation {
                         Text("API key saved.")
@@ -57,6 +65,23 @@ struct SettingsView: View {
                         .labelsHidden()
                     }
                     Text("Delay between API calls when generating multiple images with models that don't support batch requests (Gemini).")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Thumbnails") {
+                    Picker("Max size", selection: Binding(
+                        get: { appState.thumbnailMaxPixelSize },
+                        set: { newValue in
+                            appState.thumbnailMaxPixelSize = newValue
+                            appState.migrateThumbnailsIfNeeded()
+                        }
+                    )) {
+                        Text("64 px").tag(64)
+                        Text("128 px").tag(128)
+                        Text("256 px").tag(256)
+                    }
+                    Text("Changing this will regenerate all existing thumbnails.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -100,7 +125,9 @@ struct SettingsView: View {
         }
         .frame(width: 500, height: 560)
         .onAppear {
-            replicateKey = KeychainManager.load(key: "replicate_api_key") ?? ""
+            let loaded = KeychainManager.load(key: "replicate_api_key") ?? ""
+            replicateKey = loaded
+            savedKey = loaded
             rootFolderPath = appState.projectManager.projectsRootURL?.path ?? ""
         }
     }

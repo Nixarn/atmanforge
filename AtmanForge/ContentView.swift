@@ -14,6 +14,29 @@ struct ContentView: View {
         .overlay(alignment: .top) {
             ToastOverlay()
         }
+        .overlay {
+            if let progress = appState.thumbnailMigrationProgress {
+                ZStack {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+
+                    VStack(spacing: 12) {
+                        Text("Resizing thumbnails...")
+                            .font(.headline)
+                        ProgressView(value: progress)
+                            .progressViewStyle(.linear)
+                            .frame(width: 200)
+                        Text("\(Int(progress * 100))%")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    .padding(24)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+                .transition(.opacity)
+            }
+        }
         #if os(macOS)
         .quickLookKeyHandler(appState: appState)
         #endif

@@ -562,7 +562,7 @@ struct LibraryView: View {
     private func listThumbnail(url: URL, savedImageURL: URL?) -> some View {
         Group {
             #if os(macOS)
-            if let nsImage = NSImage(contentsOf: url) {
+            if let nsImage = ThumbnailCache.shared.image(for: url) {
                 Image(nsImage: nsImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -575,7 +575,7 @@ struct LibraryView: View {
                 placeholderThumb
             }
             #else
-            if let data = try? Data(contentsOf: url), let uiImage = UIImage(data: data) {
+            if let uiImage = ThumbnailCache.shared.image(for: url) {
                 Image(uiImage: uiImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)

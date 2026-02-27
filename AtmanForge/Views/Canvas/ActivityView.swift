@@ -366,8 +366,8 @@ struct ThumbnailHoverView: View {
 
     var body: some View {
         #if os(macOS)
-        if let nsImage = NSImage(contentsOf: url) {
-            imageContent(Image(nsImage: nsImage))
+        if let nsImage = ThumbnailCache.shared.image(for: url) {
+            imageContent(nsImage)
                 .contextMenu { contextMenuItems }
                 .onDrag {
                     guard let fileURL = savedImageURL else { return NSItemProvider() }
@@ -375,7 +375,7 @@ struct ThumbnailHoverView: View {
                 }
         }
         #else
-        if let data = try? Data(contentsOf: url), let uiImage = UIImage(data: data) {
+        if let uiImage = ThumbnailCache.shared.image(for: url) {
             imageContent(Image(uiImage: uiImage))
                 .contextMenu { contextMenuItems }
                 .onDrag {
@@ -462,10 +462,10 @@ struct ThumbnailHoverView: View {
         }
     }
 
-    private func imageContent(_ image: Image) -> some View {
-        #if os(macOS)
+    #if os(macOS)
+    private func imageContent(_ nsImage: NSImage) -> some View {
         NativeHoverZoomView(
-            nsImage: NSImage(contentsOf: url),
+            nsImage: nsImage,
             width: width,
             height: height,
             isSelected: isSelected,
@@ -475,7 +475,9 @@ struct ThumbnailHoverView: View {
         .onHover { isHovered in
             updateHoveredPreviewURL(isHovered: isHovered)
         }
-        #else
+    }
+    #else
+    private func imageContent(_ image: Image) -> some View {
         image
             .resizable()
             .aspectRatio(contentMode: .fill)
@@ -487,8 +489,8 @@ struct ThumbnailHoverView: View {
                     .opacity(isSelected ? 1 : 0)
             )
             .onTapGesture { onTap?(false, false) }
-        #endif
     }
+    #endif
 }
 
 #if os(macOS)

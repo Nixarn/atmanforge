@@ -17,6 +17,10 @@ struct AIGenerationPanel: View {
         @Bindable var appState = appState
 
         VStack(alignment: .leading, spacing: 12) {
+            if !appState.hasAPIKey {
+                APIKeyBanner(appState: appState)
+            }
+
             Text("Model")
                 .font(.headline)
 
@@ -499,6 +503,37 @@ struct AIGenerationPanel: View {
             }
         }
         return true
+    }
+}
+
+private struct APIKeyBanner: View {
+    let appState: AppState
+
+    var body: some View {
+        Button {
+            appState.showSettings = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "key")
+                    .font(.caption)
+                Text("API key not set")
+                    .font(.caption)
+                Spacer()
+                Text("Settings")
+                    .font(.caption)
+                    .foregroundStyle(Color.accentColor)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color.yellow.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.yellow.opacity(0.3), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
     }
 }
 
