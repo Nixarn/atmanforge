@@ -172,6 +172,18 @@ struct AIGenerationPanel: View {
 
                     Spacer()
 
+                    if !appState.referenceImages.isEmpty {
+                        Button {
+                            appState.referenceImages.removeAll()
+                            appState.commitUndoCheckpoint()
+                        } label: {
+                            Text("Clear")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.accentColor)
+                    }
+
                     Text("\(appState.referenceImages.count)/\(appState.selectedModel.maxReferenceImages) max")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)

@@ -28,7 +28,7 @@ final class QuickLookController: NSObject, QLPreviewPanelDataSource, QLPreviewPa
     }
 
     func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem {
-        previewURL! as NSURL
+        (previewURL ?? URL(fileURLWithPath: "/")) as NSURL
     }
 
     func previewPanelWillClose(_ panel: QLPreviewPanel!) {

@@ -7,10 +7,6 @@ struct ActivityView: View {
     @Environment(AppState.self) private var appState
     var thumbnailMaxSize: CGFloat = 64
     @State private var hoveredJobID: UUID?
-    @State private var previewImageURL: URL?
-    @State private var previewModelName: String?
-    @State private var previewPrompt: String?
-    @State private var previewParamsJSON: String?
     @State private var expandedJobs: Set<UUID> = []
     @State private var selectedRowID: RowID?
 
@@ -44,21 +40,6 @@ struct ActivityView: View {
         #else
         .background(Color(uiColor: .systemBackground))
         #endif
-        .sheet(isPresented: Binding(
-            get: { previewImageURL != nil },
-            set: { if !$0 { previewImageURL = nil } }
-        )) {
-            if let url = previewImageURL {
-                ImagePreviewView(
-                    imageURL: url,
-                    modelName: previewModelName,
-                    prompt: previewPrompt,
-                    requestParamsJSON: previewParamsJSON
-                ) {
-                    previewImageURL = nil
-                }
-            }
-        }
     }
 
     private var emptyState: some View {
@@ -313,12 +294,9 @@ struct ActivityView: View {
                                             appState.selectImage(job: job, index: index)
                                         },
                                         onPreview: {
-                                            if let savedURL {
-                                                previewImageURL = savedURL
-                                                previewModelName = job.model.displayName
-                                                previewPrompt = job.prompt
-                                                previewParamsJSON = job.requestParamsJSON
-                                            }
+                                            #if os(macOS)
+                                            if let savedURL { QuickLookController.shared.preview(url: savedURL) }
+                                            #endif
                                         }
                                     )
                                 }
@@ -341,12 +319,9 @@ struct ActivityView: View {
                                         appState.selectImage(job: job, index: index)
                                     },
                                     onPreview: {
-                                        if let savedURL {
-                                            previewImageURL = savedURL
-                                            previewModelName = job.model.displayName
-                                            previewPrompt = job.prompt
-                                            previewParamsJSON = job.requestParamsJSON
-                                        }
+                                        #if os(macOS)
+                                        if let savedURL { QuickLookController.shared.preview(url: savedURL) }
+                                        #endif
                                     }
                                 )
                             }

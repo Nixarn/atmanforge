@@ -98,69 +98,12 @@ struct ComparisonOverlayView<MenuContent: View>: View {
     }
 }
 
-struct ImagePreviewView: View {
-    let imageURL: URL
-    var modelName: String?
-    var prompt: String?
-    var requestParamsJSON: String?
-    var onClose: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if let nsImage = NSImage(contentsOf: imageURL) {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .aspectRatio(1, contentMode: .fit)
-            }
-            Divider()
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if let modelName {
-                            Text(modelName)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        if let prompt, !prompt.isEmpty {
-                            Text(prompt)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                        }
-                    }
-                    Spacer()
-                    Button("Close") { onClose() }
-                        .keyboardShortcut(.cancelAction)
-                }
-                if let params = requestParamsJSON, !params.isEmpty {
-                    ScrollView(.vertical) {
-                        Text(params)
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(maxHeight: 140)
-                    .padding(8)
-                    .background(Color.secondary.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
-            }
-            .padding()
-            .background(.bar)
-        }
-        .background(.black)
-        .frame(minWidth: 800, minHeight: 600)
-    }
-}
-
 struct ImageInspectorView: View {
     @Environment(AppState.self) private var appState
 
     @State private var selectedReferenceIndex: Int = 0
     @State private var comparisonActive: Bool = false
     @State private var comparisonViewID: UUID = UUID()
-    @State private var previewImageURL: URL?
     @State private var showRequestDetails: Bool = false
 
     private var job: GenerationJob? {
@@ -226,21 +169,6 @@ struct ImageInspectorView: View {
                     selectedReferenceIndex = 0
                     comparisonActive = false
                     comparisonViewID = UUID()
-                }
-                .sheet(isPresented: Binding(
-                    get: { previewImageURL != nil },
-                    set: { if !$0 { previewImageURL = nil } }
-                )) {
-                    if let url = previewImageURL {
-                        ImagePreviewView(
-                            imageURL: url,
-                            modelName: job.model.displayName,
-                            prompt: job.prompt,
-                            requestParamsJSON: job.requestParamsJSON
-                        ) {
-                            previewImageURL = nil
-                        }
-                    }
                 }
             }
         }
@@ -545,13 +473,13 @@ struct ImageInspectorView: View {
 
     @ViewBuilder
     private func imageContextMenu(imageURL: URL) -> some View {
+        #if os(macOS)
         Button {
-            previewImageURL = imageURL
+            QuickLookController.shared.preview(url: imageURL)
         } label: {
             Label("Preview", systemImage: "eye")
         }
 
-        #if os(macOS)
         Button {
             NSWorkspace.shared.activateFileViewerSelecting([imageURL])
         } label: {

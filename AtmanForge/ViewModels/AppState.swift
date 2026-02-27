@@ -150,6 +150,11 @@ class AppState {
             imageCount = selectedModel.maxImageCount
         }
 
+        // Clamp reference images to model max
+        if referenceImages.count > selectedModel.maxReferenceImages {
+            referenceImages = Array(referenceImages.prefix(selectedModel.maxReferenceImages))
+        }
+
         // Reset aspect ratio if not supported by new model
         if !selectedModel.supportedAspectRatios.contains(selectedAspectRatio) {
             selectedAspectRatio = .r1_1

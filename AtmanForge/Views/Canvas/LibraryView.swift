@@ -43,11 +43,6 @@ struct LibraryImageEntry: Identifiable {
 struct LibraryView: View {
     @Environment(AppState.self) private var appState
     var thumbnailMaxSize: CGFloat = 96
-    @State private var previewImageURL: URL?
-    @State private var previewModelName: String?
-    @State private var previewPrompt: String?
-    @State private var previewParamsJSON: String?
-
     private var projectRoot: URL? {
         appState.projectManager.projectsRootURL
     }
@@ -180,21 +175,6 @@ struct LibraryView: View {
         #else
         .background(Color(uiColor: .systemBackground))
         #endif
-        .sheet(isPresented: Binding(
-            get: { previewImageURL != nil },
-            set: { if !$0 { previewImageURL = nil } }
-        )) {
-            if let url = previewImageURL {
-                ImagePreviewView(
-                    imageURL: url,
-                    modelName: previewModelName,
-                    prompt: previewPrompt,
-                    requestParamsJSON: previewParamsJSON
-                ) {
-                    previewImageURL = nil
-                }
-            }
-        }
     }
 
     // MARK: - Grid Header Bar
@@ -444,12 +424,9 @@ struct LibraryView: View {
                 handleTap(entry: entry, commandDown: cmd, shiftDown: shift, entries: entries)
             },
             onPreview: {
-                if let savedImageURL {
-                    previewImageURL = savedImageURL
-                    previewModelName = entry.model.displayName
-                    previewPrompt = entry.prompt
-                    previewParamsJSON = entry.job?.requestParamsJSON
-                }
+                #if os(macOS)
+                if let savedImageURL { QuickLookController.shared.preview(url: savedImageURL) }
+                #endif
             },
             extraContextMenu: {
                 AnyView(gridContextMenuExtra(entry: entry, selectedCount: selectedCount))
@@ -629,14 +606,13 @@ struct LibraryView: View {
             let selectedCount = appState.selectedLibraryImageIDs.count
             let isMulti = selectedCount > 1 && appState.selectedLibraryImageIDs.contains(entry.id)
 
+            #if os(macOS)
             Button {
-                previewImageURL = fileURL
-                previewModelName = entry.model.displayName
-                previewPrompt = entry.prompt
-                previewParamsJSON = entry.job?.requestParamsJSON
+                QuickLookController.shared.preview(url: fileURL)
             } label: {
                 Label("Preview", systemImage: "eye")
             }
+            #endif
 
             Button {
                 #if os(macOS)
