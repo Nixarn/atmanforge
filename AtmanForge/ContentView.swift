@@ -18,6 +18,12 @@ struct ContentView: View {
         .quickLookKeyHandler(appState: appState)
         #endif
         .navigationTitle(appState.projectName)
+        .sheet(isPresented: Binding(
+            get: { appState.showSettings },
+            set: { appState.showSettings = $0 }
+        )) {
+            SettingsView()
+        }
     }
 
     private var mainLayout: some View {

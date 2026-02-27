@@ -21,7 +21,7 @@ struct AIGenerationPanel: View {
                 .font(.headline)
 
             VStack(spacing: 6) {
-                ForEach(AIModel.generationModels, id: \.self) { model in
+                ForEach(appState.visibleGenerationModels, id: \.self) { model in
                     Button {
                         appState.selectedModel = model
                         appState.onModelChanged()

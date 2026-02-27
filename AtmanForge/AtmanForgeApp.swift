@@ -47,6 +47,12 @@ struct AtmanForgeApp: App {
                     ])
                 }
             }
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings...") {
+                    appState.showSettings = true
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") { appState.undo() }
                     .keyboardShortcut("z", modifiers: .command)
@@ -57,12 +63,6 @@ struct AtmanForgeApp: App {
             }
         }
 
-        #if os(macOS)
-        Settings {
-            SettingsView()
-                .environment(appState)
-        }
-        #endif
     }
 }
 

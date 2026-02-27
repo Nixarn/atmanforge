@@ -57,6 +57,7 @@ class AppState {
     var canvasZoom: CGFloat = 1.0
     var canvasOffset: CGSize = .zero
     var imageVersion = 0
+    var showSettings = false
     var errorMessage: String?
     var projectSizeText: String = ""
     var hoveredPreviewURL: URL?
@@ -81,6 +82,15 @@ class AppState {
     var parallelRequestDelay: TimeInterval {
         get { UserDefaults.standard.object(forKey: "parallelRequestDelay") as? TimeInterval ?? 5.0 }
         set { UserDefaults.standard.set(newValue, forKey: "parallelRequestDelay") }
+    }
+
+    var hiddenModels: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: "hiddenModels") ?? []) }
+        set { UserDefaults.standard.set(Array(newValue), forKey: "hiddenModels") }
+    }
+
+    var visibleGenerationModels: [AIModel] {
+        AIModel.generationModels.filter { !hiddenModels.contains($0.rawValue) }
     }
 
     // MARK: - AI Generation
