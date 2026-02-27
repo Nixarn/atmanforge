@@ -637,6 +637,7 @@ class AppState {
     // MARK: - Reuse Settings
 
     func loadSettings(from job: GenerationJob) {
+        hiddenModels.remove(job.model.rawValue)
         selectedModel = job.model
         prompt = job.prompt
         selectedAspectRatio = job.aspectRatio

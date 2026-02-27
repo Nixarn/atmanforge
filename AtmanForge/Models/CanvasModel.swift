@@ -65,6 +65,7 @@ enum AIModelProvider: String, Codable {
 enum AIModel: String, Codable {
     case gemini25 = "gemini-2.5"
     case gemini30 = "gemini-3.0"
+    case gemini31Flash = "gemini-3.1-flash"
     case gptImage15 = "gpt-image-1.5"
     case qwenImage = "qwen-image"
     case qwenImage2512 = "qwen-image-2512"
@@ -74,12 +75,13 @@ enum AIModel: String, Codable {
     case removeBackground = "remove-background"
 
     /// Models available for generation (excludes utility models)
-    static let generationModels: [AIModel] = [.gemini25, .gemini30, .gptImage15, .qwenImage, .qwenImage2512, .zImageTurbo, .flux2Pro, .flux2Max]
+    static let generationModels: [AIModel] = [.gemini25, .gemini30, .gemini31Flash, .gptImage15, .qwenImage, .qwenImage2512, .zImageTurbo, .flux2Pro, .flux2Max]
 
     var displayName: String {
         switch self {
         case .gemini25: return "Gemini 2.5"
         case .gemini30: return "Gemini 3.0 Pro"
+        case .gemini31Flash: return "Gemini 3.1 Flash"
         case .gptImage15: return "GPT Image 1.5"
         case .qwenImage: return "Qwen Image"
         case .qwenImage2512: return "Qwen Image 2512"
@@ -92,7 +94,7 @@ enum AIModel: String, Codable {
 
     var provider: AIModelProvider {
         switch self {
-        case .gemini25, .gemini30: return .google
+        case .gemini25, .gemini30, .gemini31Flash: return .google
         case .gptImage15: return .openai
         case .qwenImage, .qwenImage2512: return .qwen
         case .zImageTurbo: return .prunaai
@@ -106,6 +108,7 @@ enum AIModel: String, Codable {
         switch self {
         case .gemini25: return "google/nano-banana"
         case .gemini30: return "google/nano-banana-pro"
+        case .gemini31Flash: return "google/nano-banana-2"
         case .gptImage15: return "openai/gpt-image-1.5"
         case .qwenImage: return "qwen/qwen-image"
         case .qwenImage2512: return "qwen/qwen-image-2512"
@@ -118,14 +121,22 @@ enum AIModel: String, Codable {
 
     var supportsResolution: Bool {
         switch self {
-        case .gemini30: return true
+        case .gemini30, .gemini31Flash: return true
         case .gemini25, .gptImage15, .qwenImage, .qwenImage2512, .zImageTurbo, .flux2Pro, .flux2Max, .removeBackground: return false
+        }
+    }
+
+    var supportedResolutions: [ImageResolution] {
+        switch self {
+        case .gemini30: return [.r1k, .r2k, .r4k]
+        case .gemini31Flash: return [.r512, .r1k, .r2k, .r4k]
+        default: return ImageResolution.allCases
         }
     }
 
     var maxImageCount: Int {
         switch self {
-        case .gemini25, .gemini30: return 4
+        case .gemini25, .gemini30, .gemini31Flash: return 4
         case .gptImage15: return 10
         case .qwenImage, .qwenImage2512, .zImageTurbo, .flux2Pro, .flux2Max: return 4
         case .removeBackground: return 1
@@ -135,7 +146,7 @@ enum AIModel: String, Codable {
     var supportsNativeImageCount: Bool {
         switch self {
         case .gptImage15: return true
-        case .gemini25, .gemini30, .qwenImage, .qwenImage2512, .zImageTurbo, .flux2Pro, .flux2Max, .removeBackground: return false
+        case .gemini25, .gemini30, .gemini31Flash, .qwenImage, .qwenImage2512, .zImageTurbo, .flux2Pro, .flux2Max, .removeBackground: return false
         }
     }
 
@@ -143,6 +154,7 @@ enum AIModel: String, Codable {
         switch self {
         case .gemini25: return 6
         case .gemini30: return 14
+        case .gemini31Flash: return 14
         case .gptImage15: return 10
         case .qwenImage, .qwenImage2512: return 1
         case .zImageTurbo: return 1
@@ -156,6 +168,8 @@ enum AIModel: String, Codable {
         switch self {
         case .gemini25, .gemini30, .qwenImage, .qwenImage2512, .zImageTurbo, .flux2Pro, .flux2Max:
             return [.r9_16, .r2_3, .r3_4, .r4_5, .r1_1, .r5_4, .r4_3, .r3_2, .r16_9, .r21_9]
+        case .gemini31Flash:
+            return [.r1_8, .r1_4, .r9_16, .r2_3, .r3_4, .r4_5, .r1_1, .r5_4, .r4_3, .r3_2, .r16_9, .r21_9, .r4_1, .r8_1]
         case .gptImage15:
             return [.r2_3, .r1_1, .r3_2]
         case .removeBackground:
@@ -205,6 +219,7 @@ enum GPTInputFidelity: String, CaseIterable, Codable {
 }
 
 enum ImageResolution: String, CaseIterable, Codable {
+    case r512 = "512"
     case r1k = "1K"
     case r2k = "2K"
     case r4k = "4K"
@@ -213,6 +228,7 @@ enum ImageResolution: String, CaseIterable, Codable {
 
     var baseSize: Int {
         switch self {
+        case .r512: return 512
         case .r1k: return 1024
         case .r2k: return 2048
         case .r4k: return 4096
@@ -236,6 +252,8 @@ enum ImageResolution: String, CaseIterable, Codable {
 }
 
 enum AspectRatio: String, CaseIterable, Codable {
+    case r8_1 = "8:1"
+    case r4_1 = "4:1"
     case r21_9 = "21:9"
     case r16_9 = "16:9"
     case r3_2 = "3:2"
@@ -246,11 +264,15 @@ enum AspectRatio: String, CaseIterable, Codable {
     case r3_4 = "3:4"
     case r2_3 = "2:3"
     case r9_16 = "9:16"
+    case r1_4 = "1:4"
+    case r1_8 = "1:8"
 
     var displayName: String { rawValue }
 
     var ratio: (w: Int, h: Int) {
         switch self {
+        case .r8_1: return (8, 1)
+        case .r4_1: return (4, 1)
         case .r21_9: return (21, 9)
         case .r16_9: return (16, 9)
         case .r3_2: return (3, 2)
@@ -261,6 +283,8 @@ enum AspectRatio: String, CaseIterable, Codable {
         case .r3_4: return (3, 4)
         case .r2_3: return (2, 3)
         case .r9_16: return (9, 16)
+        case .r1_4: return (1, 4)
+        case .r1_8: return (1, 8)
         }
     }
 }

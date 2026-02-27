@@ -8,18 +8,6 @@ struct ActivityView: View {
     var thumbnailMaxSize: CGFloat = 64
     @State private var hoveredJobID: UUID?
     @State private var expandedJobs: Set<UUID> = []
-    @State private var selectedRowID: RowID?
-
-    private struct RowID: Hashable {
-        let jobID: UUID
-        let isDetail: Bool
-    }
-
-    private struct ActivityRow: Identifiable {
-        let id: RowID
-        let job: GenerationJob
-        let isDetail: Bool
-    }
 
     private var projectRoot: URL? {
         appState.projectManager.projectsRootURL
@@ -57,80 +45,35 @@ struct ActivityView: View {
     }
 
     private var jobListView: some View {
-        Group {
-            #if os(macOS)
-            Table(tableRows, selection: $selectedRowID) {
-                TableColumn("Activity") { row in
-                    if row.isDetail {
-                        requestDetailsRow(job: row.job)
-                    } else {
-                        jobRow(row.job, isTableRow: true)
-                            .onHover { isHovered in
-                                hoveredJobID = isHovered ? row.job.id : nil
-                            }
-                            .contextMenu {
-                                if let error = row.job.errorMessage, row.job.status == .failed {
-                                    Button {
-                                        copyToClipboard(error)
-                                    } label: {
-                                        Label("Copy Error", systemImage: "doc.on.doc")
-                                    }
-                                    Divider()
-                                }
-                                Button(role: .destructive) {
-                                    appState.removeJob(row.job)
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(appState.generationJobs) { job in
+                    jobRow(job)
+                        .onHover { isHovered in
+                            hoveredJobID = isHovered ? job.id : nil
+                        }
+                        .contextMenu {
+                            if let error = job.errorMessage, job.status == .failed {
+                                Button {
+                                    copyToClipboard(error)
                                 } label: {
-                                    Label("Remove", systemImage: "trash")
+                                    Label("Copy Error", systemImage: "doc.on.doc")
                                 }
+                                Divider()
                             }
+                            Button(role: .destructive) {
+                                appState.removeJob(job)
+                            } label: {
+                                Label("Remove", systemImage: "trash")
+                            }
+                        }
+                    if expandedJobs.contains(job.id), let params = job.requestParamsJSON, !params.isEmpty {
+                        requestDetailsRow(job: job)
                     }
+                    Divider()
                 }
             }
-            #else
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(appState.generationJobs) { job in
-                        jobRow(job, isTableRow: false)
-                            .onHover { isHovered in
-                                hoveredJobID = isHovered ? job.id : nil
-                            }
-                            .contextMenu {
-                                if let error = job.errorMessage, job.status == .failed {
-                                    Button {
-                                        copyToClipboard(error)
-                                    } label: {
-                                        Label("Copy Error", systemImage: "doc.on.doc")
-                                    }
-                                    Divider()
-                                }
-                                Button(role: .destructive) {
-                                    appState.removeJob(job)
-                                } label: {
-                                    Label("Remove", systemImage: "trash")
-                                }
-                            }
-                        Divider()
-                    }
-                }
-            }
-            #endif
         }
-        .onChange(of: selectedRowID) { _, newValue in
-            guard let newValue, !newValue.isDetail,
-                  let job = appState.generationJobs.first(where: { $0.id == newValue.jobID }) else { return }
-            appState.selectImage(job: job, index: 0)
-        }
-    }
-
-    private var tableRows: [ActivityRow] {
-        var rows: [ActivityRow] = []
-        for job in appState.generationJobs {
-            rows.append(ActivityRow(id: RowID(jobID: job.id, isDetail: false), job: job, isDetail: false))
-            if expandedJobs.contains(job.id), let params = job.requestParamsJSON, !params.isEmpty {
-                rows.append(ActivityRow(id: RowID(jobID: job.id, isDetail: true), job: job, isDetail: true))
-            }
-        }
-        return rows
     }
 
     private func requestDetailsView(_ params: String) -> some View {
@@ -158,7 +101,7 @@ struct ActivityView: View {
         }
     }
 
-    private func jobRow(_ job: GenerationJob, isTableRow: Bool) -> some View {
+    private func jobRow(_ job: GenerationJob) -> some View {
         HStack(alignment: .top, spacing: 10) {
             // Status icon or spinner
             Group {
@@ -179,20 +122,6 @@ struct ActivityView: View {
                     Text(job.model.displayName)
                         .font(.subheadline)
                         .fontWeight(.medium)
-                    if let params = job.requestParamsJSON, !params.isEmpty {
-                        Button {
-                            if expandedJobs.contains(job.id) {
-                                expandedJobs.remove(job.id)
-                            } else {
-                                expandedJobs.insert(job.id)
-                            }
-                        } label: {
-                            Image(systemName: "doc.text.magnifyingglass")
-                                .font(.caption)
-                        }
-                        .buttonStyle(.plain)
-                        .help(expandedJobs.contains(job.id) ? "Hide request" : "Show request")
-                    }
                     if (job.status == .completed || job.status == .failed || job.status == .cancelled) && hoveredJobID == job.id {
                         Button {
                             appState.loadSettings(from: job)
@@ -211,6 +140,24 @@ struct ActivityView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(Color.accentColor)
+
+                        #if DEBUG
+                        if let params = job.requestParamsJSON, !params.isEmpty {
+                            Button {
+                                if expandedJobs.contains(job.id) {
+                                    expandedJobs.remove(job.id)
+                                } else {
+                                    expandedJobs.insert(job.id)
+                                }
+                            } label: {
+                                Label("Show Request", systemImage: "doc.text.magnifyingglass")
+                                    .font(.caption2)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Color.accentColor)
+                        }
+                        #endif
+
                         if job.status == .failed {
                             Button {
                                 appState.retryJob(job)
@@ -273,61 +220,29 @@ struct ActivityView: View {
                     }
                 }
 
-                if !isTableRow, expandedJobs.contains(job.id), let params = job.requestParamsJSON, !params.isEmpty {
-                    requestDetailsView(params)
-                }
-
                 if job.status == .completed && !job.thumbnailPaths.isEmpty, let root = projectRoot {
-                    if isTableRow {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(Array(job.thumbnailPaths.enumerated()), id: \.element) { index, thumbPath in
-                                    let savedURL = index < job.savedImagePaths.count
-                                        ? root.appendingPathComponent(job.savedImagePaths[index])
-                                        : nil
-                                    thumbnailImage(
-                                        root.appendingPathComponent(thumbPath),
-                                        aspectRatio: job.aspectRatio,
-                                        isSelected: appState.selectedImageJob?.id == job.id && appState.selectedImageIndex == index,
-                                        savedImageURL: savedURL,
-                                        onTap: {
-                                            appState.selectImage(job: job, index: index)
-                                        },
-                                        onPreview: {
-                                            #if os(macOS)
-                                            if let savedURL { QuickLookController.shared.preview(url: savedURL) }
-                                            #endif
-                                        }
-                                    )
+                    FlowLayout(spacing: 6) {
+                        ForEach(Array(job.thumbnailPaths.enumerated()), id: \.element) { index, thumbPath in
+                            let savedURL = index < job.savedImagePaths.count
+                                ? root.appendingPathComponent(job.savedImagePaths[index])
+                                : nil
+                            thumbnailImage(
+                                root.appendingPathComponent(thumbPath),
+                                aspectRatio: job.aspectRatio,
+                                isSelected: appState.selectedImageJob?.id == job.id && appState.selectedImageIndex == index,
+                                savedImageURL: savedURL,
+                                onTap: {
+                                    appState.selectImage(job: job, index: index)
+                                },
+                                onPreview: {
+                                    #if os(macOS)
+                                    if let savedURL { QuickLookController.shared.preview(url: savedURL) }
+                                    #endif
                                 }
-                            }
-                            .padding(.vertical, 2)
+                            )
                         }
-                        .frame(height: thumbnailMaxSize + 4)
-                    } else {
-                        FlowLayout(spacing: 6) {
-                            ForEach(Array(job.thumbnailPaths.enumerated()), id: \.element) { index, thumbPath in
-                                let savedURL = index < job.savedImagePaths.count
-                                    ? root.appendingPathComponent(job.savedImagePaths[index])
-                                    : nil
-                                thumbnailImage(
-                                    root.appendingPathComponent(thumbPath),
-                                    aspectRatio: job.aspectRatio,
-                                    isSelected: appState.selectedImageJob?.id == job.id && appState.selectedImageIndex == index,
-                                    savedImageURL: savedURL,
-                                    onTap: {
-                                        appState.selectImage(job: job, index: index)
-                                    },
-                                    onPreview: {
-                                        #if os(macOS)
-                                        if let savedURL { QuickLookController.shared.preview(url: savedURL) }
-                                        #endif
-                                    }
-                                )
-                            }
-                        }
-                        .padding(.top, 2)
                     }
+                    .padding(.top, 2)
                 }
 
                 if job.status == .completed && !job.savedImagePaths.isEmpty && job.thumbnailPaths.isEmpty {
@@ -358,18 +273,16 @@ struct ActivityView: View {
 
             }
         }
-        .padding(.horizontal, isTableRow ? 12 : 16)
-        .padding(.vertical, isTableRow ? 6 : 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .contentShape(Rectangle())
         .onTapGesture {
-            if !isTableRow {
-                appState.selectImage(job: job, index: 0)
-            }
+            appState.selectImage(job: job, index: 0)
         }
-        .background(isTableRow ? Color.clear : (hoveredJobID == job.id
+        .background(hoveredJobID == job.id
             ? Color.primary.opacity(0.06)
             : (job.status == .running ? Color.accentColor.opacity(0.05) : Color.clear)
-        ))
+        )
         .animation(.easeInOut(duration: 0.2), value: expandedJobs)
     }
 

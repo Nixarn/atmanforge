@@ -156,6 +156,12 @@ class ReplicateProvider: AIProvider {
                 input["resolution"] = resolution.rawValue
             }
 
+        case .gemini31Flash:
+            input["output_format"] = "png"
+            if let resolution = request.resolution {
+                input["resolution"] = resolution.rawValue
+            }
+
         case .qwenImage:
             input["output_format"] = "png"
             input["disable_safety_checker"] = true

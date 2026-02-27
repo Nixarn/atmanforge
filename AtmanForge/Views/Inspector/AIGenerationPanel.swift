@@ -247,7 +247,7 @@ struct AIGenerationPanel: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     Picker("Resolution", selection: $appState.selectedResolution) {
-                        ForEach(ImageResolution.allCases, id: \.self) { res in
+                        ForEach(appState.selectedModel.supportedResolutions, id: \.self) { res in
                             Text(res.displayName).tag(res)
                         }
                     }
