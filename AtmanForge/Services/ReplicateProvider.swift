@@ -51,20 +51,39 @@ class ReplicateProvider: AIProvider {
                 predictions.append(prediction)
             }
 
-            return try await withThrowingTaskGroup(of: (Int, [Data]).self) { group in
+            return await withTaskGroup(of: Result<(Int, [Data]), Error>.self) { group in
                 for (index, prediction) in predictions.enumerated() {
                     group.addTask {
-                        let finalPrediction = try await self.pollPrediction(prediction)
-                        let images = try await self.downloadImages(from: finalPrediction)
-                        return (index, images)
+                        do {
+                            let finalPrediction = try await self.pollPrediction(prediction)
+                            let images = try await self.downloadImages(from: finalPrediction)
+                            return .success((index, images))
+                        } catch {
+                            return .failure(error)
+                        }
                     }
                 }
-                var results: [(Int, [Data])] = []
-                for try await result in group {
-                    results.append(result)
+                var successes: [(Int, [Data])] = []
+                var errors: [Error] = []
+                for await taskResult in group {
+                    switch taskResult {
+                    case .success(let value):
+                        successes.append(value)
+                    case .failure(let error):
+                        errors.append(error)
+                    }
                 }
-                let allImageData = results.sorted { $0.0 < $1.0 }.flatMap { $0.1 }
-                return GenerationResult(imageDataArray: allImageData)
+                if successes.isEmpty, let firstError = errors.first {
+                    // All failed — preserve existing behavior by returning empty with errors
+                    // We can't throw from withTaskGroup, so return a result the caller handles
+                    return GenerationResult(
+                        imageDataArray: [],
+                        partialErrors: errors.map { $0.localizedDescription }
+                    )
+                }
+                let allImageData = successes.sorted { $0.0 < $1.0 }.flatMap { $0.1 }
+                let partialErrors = errors.map { $0.localizedDescription }
+                return GenerationResult(imageDataArray: allImageData, partialErrors: partialErrors)
             }
         }
     }

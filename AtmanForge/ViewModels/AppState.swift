@@ -690,59 +690,8 @@ class AppState {
     }
 
     func loadSettingsCompatible(from job: GenerationJob) {
-        // Keep current model; apply parameters that are compatible
-        let currentModel = selectedModel
-        prompt = job.prompt
-
-        // Aspect ratio: use if supported, else fallback to 1:1
-        if currentModel.supportedAspectRatios.contains(job.aspectRatio) {
-            selectedAspectRatio = job.aspectRatio
-        } else {
-            selectedAspectRatio = .r1_1
-        }
-
-        // Resolution if supported by current model
-        if currentModel.supportsResolution, let res = job.resolution {
-            selectedResolution = res
-        }
-
-        // Image count clamped to current model
-        imageCount = min(job.imageCount, currentModel.maxImageCount)
-
-        // GPT settings only if current model is GPT Image 1.5
-        if currentModel == .gptImage15 {
-            if let q = job.gptQuality { gptQuality = q }
-            if let bg = job.gptBackground { gptBackground = bg }
-            if let f = job.gptInputFidelity { gptInputFidelity = f }
-        }
-
-        // Restore reference images from saved paths, clamped to current model's max
-        if let root = projectManager.projectsRootURL, !job.referenceImagePaths.isEmpty {
-            var restored: [Data] = []
-            for path in job.referenceImagePaths {
-                let url = root.appendingPathComponent(path)
-                if let data = try? Data(contentsOf: url) {
-                    restored.append(data)
-                }
-            }
-            referenceImages.removeAll()
-            addReferenceImages(Array(restored.prefix(currentModel.maxReferenceImages)))
-        }
-
-        // Fallback: if no reference images were restored from the job but the current model supports references,
-        // add the currently selected generated image (if available) as a reference.
-        if referenceImages.isEmpty && currentModel.maxReferenceImages > 0 {
-            if let root = projectManager.projectsRootURL,
-               let selJob = selectedImageJob,
-               selectedImageIndex < selJob.savedImagePaths.count {
-                let imageURL = root.appendingPathComponent(selJob.savedImagePaths[selectedImageIndex])
-                if let data = try? Data(contentsOf: imageURL) {
-                    addReferenceImages([data])
-                }
-            }
-        }
-
-        commitUndoCheckpoint()
+        // Load all parameters including model
+        loadSettings(from: job)
     }
 
     // MARK: - Project Operations
@@ -930,7 +879,9 @@ class AppState {
                 }
 
                 guard !result.imageDataArray.isEmpty else {
-                    throw ReplicateError.noOutput
+                    // All predictions failed — throw the first partial error or generic
+                    let msg = result.partialErrors.first ?? "No image output received from the API."
+                    throw ReplicateError.generationFailed(msg)
                 }
 
                 let meta = ImageMeta(
@@ -953,8 +904,39 @@ class AppState {
                 job.completedAt = Date()
                 job.status = .completed
                 imageVersion += 1
-                statusMessage = "Saved \(saved.imagePaths.count) image\(saved.imagePaths.count == 1 ? "" : "s")"
-                showToast("Image generated", icon: "checkmark.circle", style: .success)
+
+                // Handle partial failures: create a separate failed job for the errors
+                if !result.partialErrors.isEmpty {
+                    let successCount = result.imageDataArray.count
+                    let totalCount = successCount + result.partialErrors.count
+                    let failedJob = GenerationJob(
+                        model: currentModel,
+                        prompt: trimmedPrompt,
+                        projectID: projectRoot.lastPathComponent,
+                        aspectRatio: currentAspectRatio,
+                        resolution: currentModel.supportsResolution ? currentResolution : nil,
+                        imageCount: currentImageCount,
+                        gptQuality: currentModel == .gptImage15 ? currentGptQuality : nil,
+                        gptBackground: currentModel == .gptImage15 ? currentGptBackground : nil,
+                        gptInputFidelity: currentModel == .gptImage15 ? currentGptInputFidelity : nil
+                    )
+                    failedJob.startedAt = job.startedAt
+                    failedJob.completedAt = Date()
+                    failedJob.status = .failed
+                    failedJob.requestParamsJSON = job.requestParamsJSON
+                    let errorSummary = result.partialErrors.first ?? "Unknown error"
+                    failedJob.errorMessage = "Failed (\(result.partialErrors.count)/\(totalCount)): \(errorSummary)"
+                    if let jobIndex = generationJobs.firstIndex(where: { $0.id == job.id }) {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            generationJobs.insert(failedJob, at: jobIndex + 1)
+                        }
+                    }
+                    statusMessage = "Saved \(saved.imagePaths.count) image\(saved.imagePaths.count == 1 ? "" : "s") (\(result.partialErrors.count) failed)"
+                    showToast("Partially completed", icon: "exclamationmark.triangle", style: .success)
+                } else {
+                    statusMessage = "Saved \(saved.imagePaths.count) image\(saved.imagePaths.count == 1 ? "" : "s")"
+                    showToast("Image generated", icon: "checkmark.circle", style: .success)
+                }
                 notifyJobCompleted(title: "Image Generated", message: statusMessage)
                 saveActivity()
             } catch {

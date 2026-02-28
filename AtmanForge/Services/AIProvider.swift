@@ -15,6 +15,7 @@ struct GenerationRequest {
 
 struct GenerationResult {
     let imageDataArray: [Data]
+    var partialErrors: [String] = []
 }
 
 protocol AIProvider {
