@@ -186,6 +186,12 @@ class AppState {
         if !selectedModel.supportedAspectRatios.contains(selectedAspectRatio) {
             selectedAspectRatio = .r1_1
         }
+
+        // Reset resolution if not supported by new model
+        if !selectedModel.supportedResolutions.contains(selectedResolution),
+           let lowest = selectedModel.supportedResolutions.first {
+            selectedResolution = lowest
+        }
     }
 
     // MARK: - Undo/Redo
