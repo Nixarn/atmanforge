@@ -692,8 +692,29 @@ class AppState {
     }
 
     func retryJob(_ job: GenerationJob) {
-        loadSettings(from: job)
-        generateImage()
+        // Load reference images from saved paths
+        var retryReferenceImages: [Data] = []
+        if let root = projectManager.projectsRootURL {
+            for path in job.referenceImagePaths {
+                let url = root.appendingPathComponent(path)
+                if let data = try? Data(contentsOf: url) {
+                    retryReferenceImages.append(data)
+                }
+            }
+        }
+
+        runGeneration(
+            prompt: job.prompt,
+            model: job.model,
+            aspectRatio: job.aspectRatio,
+            resolution: job.resolution,
+            imageCount: job.imageCount,
+            referenceImages: retryReferenceImages,
+            gptQuality: job.gptQuality,
+            gptBackground: job.gptBackground,
+            gptInputFidelity: job.gptInputFidelity,
+            fluxPromptStrength: nil
+        )
     }
 
     func loadSettingsCompatible(from job: GenerationJob) {
@@ -797,16 +818,43 @@ class AppState {
     // MARK: - AI Generation
 
     func generateImage() {
-        guard let projectRoot = projectManager.projectsRootURL else {
-            errorMessage = "No project folder open."
-            statusMessage = "No project folder open."
-            return
-        }
-
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPrompt.isEmpty else {
             errorMessage = "Enter a prompt first."
             statusMessage = "Enter a prompt first."
+            return
+        }
+
+        let currentModel = selectedModel
+        runGeneration(
+            prompt: trimmedPrompt,
+            model: currentModel,
+            aspectRatio: selectedAspectRatio,
+            resolution: currentModel.supportsResolution ? selectedResolution : nil,
+            imageCount: imageCount,
+            referenceImages: referenceImages,
+            gptQuality: currentModel == .gptImage15 ? gptQuality : nil,
+            gptBackground: currentModel == .gptImage15 ? gptBackground : nil,
+            gptInputFidelity: currentModel == .gptImage15 ? gptInputFidelity : nil,
+            fluxPromptStrength: (currentModel == .flux2Pro || currentModel == .flux2Max) ? fluxPromptStrength : nil
+        )
+    }
+
+    private func runGeneration(
+        prompt: String,
+        model: AIModel,
+        aspectRatio: AspectRatio,
+        resolution: ImageResolution?,
+        imageCount: Int,
+        referenceImages: [Data],
+        gptQuality: GPTQuality?,
+        gptBackground: GPTBackground?,
+        gptInputFidelity: GPTInputFidelity?,
+        fluxPromptStrength: Double?
+    ) {
+        guard let projectRoot = projectManager.projectsRootURL else {
+            errorMessage = "No project folder open."
+            statusMessage = "No project folder open."
             return
         }
 
@@ -816,58 +864,45 @@ class AppState {
             return
         }
 
-        // Snapshot current settings before launching async work
-        let currentModel = selectedModel
-        let currentAspectRatio = selectedAspectRatio
-        let currentResolution = selectedResolution
-        let currentImageCount = imageCount
-        let currentReferenceImages = referenceImages
-        let currentGptQuality = gptQuality
-        let currentGptBackground = gptBackground
-        let currentGptInputFidelity = gptInputFidelity
-        let currentFluxPromptStrength = fluxPromptStrength
-
-        // Create job and switch to activity tab immediately
         let job = GenerationJob(
-            model: currentModel,
-            prompt: trimmedPrompt,
+            model: model,
+            prompt: prompt,
             projectID: projectRoot.lastPathComponent,
-            aspectRatio: currentAspectRatio,
-            resolution: currentModel.supportsResolution ? currentResolution : nil,
-            imageCount: currentImageCount,
-            gptQuality: currentModel == .gptImage15 ? currentGptQuality : nil,
-            gptBackground: currentModel == .gptImage15 ? currentGptBackground : nil,
-            gptInputFidelity: currentModel == .gptImage15 ? currentGptInputFidelity : nil
+            aspectRatio: aspectRatio,
+            resolution: resolution,
+            imageCount: imageCount,
+            gptQuality: gptQuality,
+            gptBackground: gptBackground,
+            gptInputFidelity: gptInputFidelity
         )
         withAnimation(.easeInOut(duration: 0.2)) {
             generationJobs.insert(job, at: 0)
         }
         activeJobID = job.id
 
-        // Save reference images to project folder
         var referenceHashes: [String] = []
-        if !currentReferenceImages.isEmpty {
-            let result = projectManager.saveReferenceImages(currentReferenceImages, toFolder: projectRoot)
+        if !referenceImages.isEmpty {
+            let result = projectManager.saveReferenceImages(referenceImages, toFolder: projectRoot)
             job.referenceImagePaths = result.paths
             referenceHashes = result.hashes
         }
 
         errorMessage = nil
-        statusMessage = "Generating with \(currentModel.displayName)..."
+        statusMessage = "Generating with \(model.displayName)..."
         job.startedAt = Date()
         job.status = .running
 
         let request = GenerationRequest(
-            prompt: trimmedPrompt,
-            model: currentModel,
-            aspectRatio: currentAspectRatio,
-            resolution: currentModel.supportsResolution ? currentResolution : nil,
-            imageCount: currentImageCount,
-            referenceImages: currentReferenceImages,
-            gptQuality: currentModel == .gptImage15 ? currentGptQuality : nil,
-            gptBackground: currentModel == .gptImage15 ? currentGptBackground : nil,
-            gptInputFidelity: currentModel == .gptImage15 ? currentGptInputFidelity : nil,
-            fluxPromptStrength: (currentModel == .flux2Pro || currentModel == .flux2Max) ? currentFluxPromptStrength : nil
+            prompt: prompt,
+            model: model,
+            aspectRatio: aspectRatio,
+            resolution: resolution,
+            imageCount: imageCount,
+            referenceImages: referenceImages,
+            gptQuality: gptQuality,
+            gptBackground: gptBackground,
+            gptInputFidelity: gptInputFidelity,
+            fluxPromptStrength: fluxPromptStrength
         )
 
         let provider = ReplicateProvider(apiKey: apiKey)
@@ -886,20 +921,19 @@ class AppState {
                 }
 
                 guard !result.imageDataArray.isEmpty else {
-                    // All predictions failed — throw the first partial error or generic
                     let msg = result.partialErrors.first ?? "No image output received from the API."
                     throw ReplicateError.generationFailed(msg)
                 }
 
                 let meta = ImageMeta(
-                    prompt: trimmedPrompt,
-                    model: currentModel,
-                    aspectRatio: currentAspectRatio,
-                    resolution: currentModel.supportsResolution ? currentResolution : nil,
-                    imageCount: currentImageCount,
-                    gptQuality: currentModel == .gptImage15 ? currentGptQuality : nil,
-                    gptBackground: currentModel == .gptImage15 ? currentGptBackground : nil,
-                    gptInputFidelity: currentModel == .gptImage15 ? currentGptInputFidelity : nil,
+                    prompt: prompt,
+                    model: model,
+                    aspectRatio: aspectRatio,
+                    resolution: resolution,
+                    imageCount: imageCount,
+                    gptQuality: gptQuality,
+                    gptBackground: gptBackground,
+                    gptInputFidelity: gptInputFidelity,
                     referenceHashes: referenceHashes,
                     createdAt: Date()
                 )
@@ -917,15 +951,15 @@ class AppState {
                     let successCount = result.imageDataArray.count
                     let totalCount = successCount + result.partialErrors.count
                     let failedJob = GenerationJob(
-                        model: currentModel,
-                        prompt: trimmedPrompt,
+                        model: model,
+                        prompt: prompt,
                         projectID: projectRoot.lastPathComponent,
-                        aspectRatio: currentAspectRatio,
-                        resolution: currentModel.supportsResolution ? currentResolution : nil,
-                        imageCount: currentImageCount,
-                        gptQuality: currentModel == .gptImage15 ? currentGptQuality : nil,
-                        gptBackground: currentModel == .gptImage15 ? currentGptBackground : nil,
-                        gptInputFidelity: currentModel == .gptImage15 ? currentGptInputFidelity : nil
+                        aspectRatio: aspectRatio,
+                        resolution: resolution,
+                        imageCount: imageCount,
+                        gptQuality: gptQuality,
+                        gptBackground: gptBackground,
+                        gptInputFidelity: gptInputFidelity
                     )
                     failedJob.startedAt = job.startedAt
                     failedJob.completedAt = Date()

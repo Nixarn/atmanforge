@@ -266,7 +266,9 @@ struct ActivityView: View {
         .padding(.vertical, 10)
         .contentShape(Rectangle())
         .onTapGesture {
-            appState.selectImage(job: job, index: 0)
+            if appState.selectedImageJob?.id != job.id {
+                appState.selectImage(job: job, index: 0)
+            }
         }
         .background(hoveredJobID == job.id
             ? Color.primary.opacity(0.06)
