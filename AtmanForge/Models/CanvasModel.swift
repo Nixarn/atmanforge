@@ -129,7 +129,7 @@ enum AIModel: String, Codable {
     var supportedResolutions: [ImageResolution] {
         switch self {
         case .gemini30: return [.r1k, .r2k, .r4k]
-        case .gemini31Flash: return [.r512, .r1k, .r2k, .r4k]
+        case .gemini31Flash: return [.r1k, .r2k, .r4k]
         default: return ImageResolution.allCases
         }
     }
