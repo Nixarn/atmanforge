@@ -405,6 +405,7 @@ struct AIGenerationPanel: View {
             }
         }
         .onChange(of: appState.selectedModel) {
+            appState.onModelChanged()
             appState.commitUndoCheckpoint()
         }
         .onChange(of: appState.selectedAspectRatio) {

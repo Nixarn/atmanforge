@@ -662,6 +662,7 @@ class AppState {
     func loadSettings(from job: GenerationJob) {
         hiddenModels.remove(job.model.rawValue)
         selectedModel = job.model
+        onModelChanged()
         prompt = job.prompt
         selectedAspectRatio = job.aspectRatio
         if let res = job.resolution {
