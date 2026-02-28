@@ -96,9 +96,8 @@ class AppState {
 
     var thumbnailMigrationProgress: Double?
 
-    var hiddenModels: Set<String> {
-        get { Set(UserDefaults.standard.stringArray(forKey: "hiddenModels") ?? []) }
-        set { UserDefaults.standard.set(Array(newValue), forKey: "hiddenModels") }
+    var hiddenModels: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "hiddenModels") ?? []) {
+        didSet { UserDefaults.standard.set(Array(hiddenModels), forKey: "hiddenModels") }
     }
 
     var visibleGenerationModels: [AIModel] {

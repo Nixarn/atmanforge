@@ -124,9 +124,9 @@ struct ActivityView: View {
                         .fontWeight(.medium)
                     if (job.status == .completed || job.status == .failed || job.status == .cancelled) && hoveredJobID == job.id {
                         Button {
-                            appState.loadSettings(from: job)
+                            appState.retryJob(job)
                         } label: {
-                            Label("Retry", systemImage: "arrow.counterclockwise")
+                            Label("Retry", systemImage: "arrow.clockwise")
                                 .font(.caption2)
                         }
                         .buttonStyle(.plain)
@@ -157,17 +157,6 @@ struct ActivityView: View {
                             .foregroundStyle(Color.accentColor)
                         }
                         #endif
-
-                        if job.status == .failed {
-                            Button {
-                                appState.retryJob(job)
-                            } label: {
-                                Label("Retry", systemImage: "arrow.clockwise")
-                                    .font(.caption2)
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(Color.accentColor)
-                        }
                     } else if job.status != .completed {
                         Text(job.progressText)
                             .font(.caption)
