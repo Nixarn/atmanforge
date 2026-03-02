@@ -70,9 +70,9 @@ struct ProjectCommands: Commands {
     let appState: AppState
 
     var body: some Commands {
-        CommandMenu("Project") {
+        CommandGroup(replacing: .newItem) {
             Button("New Project...") {
-                appState.showNewProjectAlert = true
+                newProjectFolder()
             }
             .keyboardShortcut("n", modifiers: [.command, .shift])
 
@@ -81,11 +81,18 @@ struct ProjectCommands: Commands {
             }
             .keyboardShortcut("o", modifiers: [.command])
 
-            Button("New Canvas...") {
-                appState.showNewCanvasAlert = true
+            Menu("Open Recent") {
+                let recents = appState.recentProjects
+                if recents.isEmpty {
+                    Text("No Recent Projects")
+                } else {
+                    ForEach(recents, id: \.url) { project in
+                        Button(project.name) {
+                            appState.openProject(url: project.url)
+                        }
+                    }
+                }
             }
-            .keyboardShortcut("n", modifiers: [.command, .option])
-            .disabled(!appState.hasProjectsRoot || appState.selectedProjectID == nil)
 
             Divider()
 
@@ -106,10 +113,30 @@ struct ProjectCommands: Commands {
         }
     }
 
+    private func newProjectFolder() {
+        #if os(macOS)
+        let panel = NSSavePanel()
+        panel.title = "New Project"
+        panel.nameFieldLabel = "Project Name:"
+        panel.nameFieldStringValue = "My Project"
+        panel.canCreateDirectories = true
+        panel.showsTagField = false
+
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            } catch {
+                return
+            }
+            appState.openProject(url: url)
+        }
+        #endif
+    }
+
     private func openProjectFolder() {
         #if os(macOS)
         let panel = NSOpenPanel()
-        panel.title = "Open Projects Folder"
+        panel.title = "Open Project"
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true

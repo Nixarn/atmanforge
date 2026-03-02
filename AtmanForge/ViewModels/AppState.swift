@@ -1163,7 +1163,49 @@ class AppState {
     func setProjectsRoot(_ url: URL) {
         projectManager.setProjectsRoot(url)
         hasProjectsRoot = true
+        addToRecentProjects(url)
         loadProjects()
+    }
+
+    // MARK: - Recent Projects
+
+    var recentProjects: [(name: String, url: URL)] {
+        guard let bookmarks = UserDefaults.standard.array(forKey: "recentProjectBookmarks") as? [Data] else {
+            return []
+        }
+        var results: [(name: String, url: URL)] = []
+        for data in bookmarks {
+            var isStale = false
+            if let url = try? URL(resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale) {
+                results.append((name: url.lastPathComponent, url: url))
+            }
+        }
+        return results
+    }
+
+    func addToRecentProjects(_ url: URL) {
+        var bookmarks = UserDefaults.standard.array(forKey: "recentProjectBookmarks") as? [Data] ?? []
+
+        // Remove existing entry for same path
+        bookmarks.removeAll { data in
+            var isStale = false
+            if let existing = try? URL(resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale) {
+                return existing.path == url.path
+            }
+            return false
+        }
+
+        // Add new bookmark at front
+        if let bookmark = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) {
+            bookmarks.insert(bookmark, at: 0)
+        }
+
+        // Keep max 10
+        if bookmarks.count > 10 {
+            bookmarks = Array(bookmarks.prefix(10))
+        }
+
+        UserDefaults.standard.set(bookmarks, forKey: "recentProjectBookmarks")
     }
 
     func loadActivity() {
@@ -1225,7 +1267,6 @@ class AppState {
 
     // MARK: - Menu State
 
-    var showNewProjectAlert = false
     var showNewCanvasAlert = false
     var newItemName = ""
 }

@@ -68,36 +68,6 @@ struct ContentView: View {
         .task {
             appState.loadProjects()
         }
-        .alert("New Project", isPresented: newProjectBinding) {
-            TextField("Project Name", text: newItemNameBinding)
-            Button("Create") {
-                let name = appState.newItemName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !name.isEmpty {
-                    appState.createProject(name: name)
-                }
-                appState.newItemName = ""
-            }
-            Button("Cancel", role: .cancel) {
-                appState.newItemName = ""
-            }
-        } message: {
-            Text("Enter a name for the new project.")
-        }
-        .alert("New Canvas", isPresented: newCanvasBinding) {
-            TextField("Canvas Name", text: newItemNameBinding)
-            Button("Create") {
-                let name = appState.newItemName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !name.isEmpty, let projectID = appState.selectedProjectID {
-                    appState.createCanvas(inProjectID: projectID, name: name)
-                }
-                appState.newItemName = ""
-            }
-            Button("Cancel", role: .cancel) {
-                appState.newItemName = ""
-            }
-        } message: {
-            Text("Enter a name for the new canvas.")
-        }
         .alert("Remove Images?", isPresented: deleteConfirmationBinding) {
             Button("Remove", role: .destructive) {
                 appState.confirmDeleteLibraryImages()
@@ -113,27 +83,6 @@ struct ContentView: View {
         } message: {
             Text("This will permanently delete \(appState.pendingDeleteIDs.count) image\(appState.pendingDeleteIDs.count == 1 ? "" : "s") from disk.")
         }
-    }
-
-    private var newProjectBinding: Binding<Bool> {
-        Binding(
-            get: { appState.showNewProjectAlert },
-            set: { appState.showNewProjectAlert = $0 }
-        )
-    }
-
-    private var newCanvasBinding: Binding<Bool> {
-        Binding(
-            get: { appState.showNewCanvasAlert },
-            set: { appState.showNewCanvasAlert = $0 }
-        )
-    }
-
-    private var newItemNameBinding: Binding<String> {
-        Binding(
-            get: { appState.newItemName },
-            set: { appState.newItemName = $0 }
-        )
     }
 
     private var deleteConfirmationBinding: Binding<Bool> {
