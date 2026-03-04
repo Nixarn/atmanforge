@@ -100,12 +100,29 @@ struct KeyPressMonitor: NSViewRepresentable {
 extension View {
     func quickLookKeyHandler(appState: AppState) -> some View {
         background(KeyPressMonitor(
-            shouldHandleSpace: { [weak appState] in appState?.hoveredPreviewURL != nil },
+            shouldHandleSpace: { [weak appState] in
+                guard let appState else { return false }
+                if appState.hoveredPreviewURL != nil { return true }
+                return appState.selectedPreviewURL != nil
+            },
             onSpace: { [weak appState] in
-                guard let appState, let url = appState.hoveredPreviewURL else { return }
+                guard let appState else { return }
+                let url = appState.hoveredPreviewURL ?? appState.selectedPreviewURL
+                guard let url else { return }
                 QuickLookController.shared.preview(url: url)
             }
         ))
+    }
+}
+
+extension AppState {
+    var selectedPreviewURL: URL? {
+        guard let root = projectManager.projectsRootURL else { return nil }
+        if let job = selectedImageJob, selectedImageIndex < job.savedImagePaths.count {
+            let url = root.appendingPathComponent(job.savedImagePaths[selectedImageIndex])
+            if FileManager.default.fileExists(atPath: url.path) { return url }
+        }
+        return nil
     }
 }
 #endif
