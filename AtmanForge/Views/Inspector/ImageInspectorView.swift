@@ -3,16 +3,23 @@ import SwiftUI
 import AppKit
 #endif
 
-struct HorizontalClipShape: Shape {
-    var clipFromX: CGFloat
+struct HorizontalSliceShape: Shape {
+    enum Side { case left, right }
+    var side: Side
+    var dividerX: CGFloat
 
     var animatableData: CGFloat {
-        get { clipFromX }
-        set { clipFromX = newValue }
+        get { dividerX }
+        set { dividerX = newValue }
     }
 
     func path(in rect: CGRect) -> Path {
-        Path(CGRect(x: clipFromX, y: 0, width: rect.width - clipFromX, height: rect.height))
+        switch side {
+        case .left:
+            return Path(CGRect(x: 0, y: 0, width: dividerX, height: rect.height))
+        case .right:
+            return Path(CGRect(x: dividerX, y: 0, width: rect.width - dividerX, height: rect.height))
+        }
     }
 }
 
@@ -37,13 +44,14 @@ struct ComparisonOverlayView<MenuContent: View>: View {
                         .aspectRatio(contentMode: .fill)
                         .frame(width: geo.size.width, height: geo.size.height)
                         .clipped()
+                        .clipShape(HorizontalSliceShape(side: .left, dividerX: dividerX))
 
                     Image(nsImage: gen)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .frame(width: geo.size.width, height: geo.size.height)
                         .clipped()
-                        .clipShape(HorizontalClipShape(clipFromX: dividerX))
+                        .clipShape(HorizontalSliceShape(side: .right, dividerX: dividerX))
 
                     // Divider line + handle
                     ZStack {
