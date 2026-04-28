@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 @Observable
 class GenerationJob: Identifiable {
     let id: UUID

@@ -1,4 +1,7 @@
 import Foundation
+#if os(macOS)
+import AppKit
+#endif
 
 enum ModelKind: String, Codable {
     case generation
@@ -93,27 +96,27 @@ struct ModelDefinition: Codable, Identifiable, Hashable {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
-struct ModelRegistry {
+@MainActor
+@Observable
+final class ModelRegistry {
     static let shared = ModelRegistry()
 
-    let models: [ModelDefinition]
-    private let byID: [String: ModelDefinition]
+    private(set) var models: [ModelDefinition] = []
+    private(set) var loadError: String?
+    private(set) var hasUserOverride: Bool = false
+
+    private var byID: [String: ModelDefinition] = [:]
+
+    static let userFileURL: URL = {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport
+            .appendingPathComponent("AtmanForge", isDirectory: true)
+            .appendingPathComponent("Models.json", isDirectory: false)
+    }()
 
     init() {
-        guard let url = Bundle.main.url(forResource: "Models", withExtension: "json") else {
-            fatalError("Models.json not found in bundle")
-        }
-        do {
-            let data = try Data(contentsOf: url)
-            let manifest = try JSONDecoder().decode(Manifest.self, from: data)
-            self.models = manifest.models
-            self.byID = Dictionary(uniqueKeysWithValues: manifest.models.map { ($0.id, $0) })
-        } catch {
-            fatalError("Models.json invalid: \(error)")
-        }
+        reload()
     }
-
-    func model(id: String) -> ModelDefinition? { byID[id] }
 
     var generationModels: [ModelDefinition] {
         models.filter { $0.kind == .generation }
@@ -123,7 +126,201 @@ struct ModelRegistry {
         models.first { $0.kind == .backgroundRemoval }
     }
 
+    func model(id: String) -> ModelDefinition? { byID[id] }
+
+    /// Re-read bundled and user files. Sets `loadError` if the user file fails to parse or validate.
+    func reload() {
+        let bundled = Self.loadBundled()
+        let userExists = FileManager.default.fileExists(atPath: Self.userFileURL.path)
+        hasUserOverride = userExists
+
+        guard userExists else {
+            apply(bundled)
+            loadError = nil
+            return
+        }
+
+        do {
+            let user = try Self.loadUserFile()
+            apply(Self.merge(base: bundled, override: user))
+            loadError = nil
+        } catch {
+            apply(bundled)
+            loadError = error.localizedDescription
+        }
+    }
+
+    /// Copy the bundled JSON to the user path if missing, then open it in the user's default editor.
+    func openUserFileForEditing() throws {
+        if !FileManager.default.fileExists(atPath: Self.userFileURL.path) {
+            try Self.copyBundledToUserPath()
+            hasUserOverride = true
+        }
+        #if os(macOS)
+        NSWorkspace.shared.open(Self.userFileURL)
+        #endif
+    }
+
+    /// Show the user file in Finder. Caller should ensure `hasUserOverride` is true.
+    func revealUserFileInFinder() {
+        #if os(macOS)
+        NSWorkspace.shared.activateFileViewerSelecting([Self.userFileURL])
+        #endif
+    }
+
+    /// Delete the user override file and reload from bundled.
+    func revertToBundled() throws {
+        if FileManager.default.fileExists(atPath: Self.userFileURL.path) {
+            try FileManager.default.removeItem(at: Self.userFileURL)
+        }
+        reload()
+    }
+
+    private func apply(_ models: [ModelDefinition]) {
+        self.models = models
+        self.byID = Dictionary(uniqueKeysWithValues: models.map { ($0.id, $0) })
+    }
+
+    /// Merge by id: each base entry is replaced by an override entry with the same id;
+    /// override entries with new ids are appended.
+    private static func merge(base: [ModelDefinition], override: [ModelDefinition]) -> [ModelDefinition] {
+        let overrideByID = Dictionary(uniqueKeysWithValues: override.map { ($0.id, $0) })
+        var seen = Set<String>()
+        var result: [ModelDefinition] = []
+        for model in base {
+            result.append(overrideByID[model.id] ?? model)
+            seen.insert(model.id)
+        }
+        for model in override where !seen.contains(model.id) {
+            result.append(model)
+        }
+        return result
+    }
+
+    private static func loadBundled() -> [ModelDefinition] {
+        guard let url = Bundle.main.url(forResource: "Models", withExtension: "json") else {
+            fatalError("Bundled Models.json missing")
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            let manifest = try JSONDecoder().decode(Manifest.self, from: data)
+            try validate(manifest.models)
+            return manifest.models
+        } catch {
+            fatalError("Bundled Models.json invalid: \(error)")
+        }
+    }
+
+    private static func loadUserFile() throws -> [ModelDefinition] {
+        let data = try Data(contentsOf: userFileURL)
+        let manifest: Manifest
+        do {
+            manifest = try JSONDecoder().decode(Manifest.self, from: data)
+        } catch let DecodingError.keyNotFound(key, ctx) {
+            throw RegistryError.validation("Missing field \"\(key.stringValue)\"\(pathSuffix(ctx.codingPath))")
+        } catch let DecodingError.typeMismatch(_, ctx) {
+            throw RegistryError.validation("Wrong type\(pathSuffix(ctx.codingPath)): \(ctx.debugDescription)")
+        } catch let DecodingError.valueNotFound(_, ctx) {
+            throw RegistryError.validation("Missing value\(pathSuffix(ctx.codingPath))")
+        } catch let DecodingError.dataCorrupted(ctx) {
+            throw RegistryError.validation("Invalid JSON: \(ctx.debugDescription)")
+        }
+        try validate(manifest.models)
+        return manifest.models
+    }
+
+    private static func pathSuffix(_ path: [CodingKey]) -> String {
+        guard !path.isEmpty else { return "" }
+        return " at " + path.map { $0.stringValue }.joined(separator: ".")
+    }
+
+    private static func copyBundledToUserPath() throws {
+        let dir = userFileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        guard let bundled = Bundle.main.url(forResource: "Models", withExtension: "json") else {
+            throw RegistryError.bundledMissing
+        }
+        if FileManager.default.fileExists(atPath: userFileURL.path) {
+            try FileManager.default.removeItem(at: userFileURL)
+        }
+        try FileManager.default.copyItem(at: bundled, to: userFileURL)
+    }
+
+    private static func validate(_ models: [ModelDefinition]) throws {
+        var ids = Set<String>()
+        for m in models {
+            if m.id.isEmpty { throw RegistryError.validation("Model has empty \"id\"") }
+            if !ids.insert(m.id).inserted {
+                throw RegistryError.validation("Duplicate model id: \"\(m.id)\"")
+            }
+            if m.replicateModelID.isEmpty {
+                throw RegistryError.validation("\(m.id): \"replicateModelID\" is empty")
+            }
+            if m.aspectRatios.isEmpty {
+                throw RegistryError.validation("\(m.id): \"aspectRatios\" is empty")
+            }
+            if m.maxImages < 1 {
+                throw RegistryError.validation("\(m.id): \"maxImages\" must be ≥ 1")
+            }
+            if m.maxReferenceImages < 0 {
+                throw RegistryError.validation("\(m.id): \"maxReferenceImages\" must be ≥ 0")
+            }
+            var paramKeys = Set<String>()
+            for spec in m.parameters {
+                if !paramKeys.insert(spec.key).inserted {
+                    throw RegistryError.validation("\(m.id): duplicate parameter key \"\(spec.key)\"")
+                }
+                try validate(spec, modelID: m.id)
+            }
+        }
+    }
+
+    private static func validate(_ spec: ParameterSpec, modelID: String) throws {
+        let prefix = "\(modelID).\(spec.key)"
+        if spec.key.isEmpty { throw RegistryError.validation("\(modelID): parameter has empty \"key\"") }
+        switch spec.control {
+        case .picker:
+            guard let options = spec.options, !options.isEmpty else {
+                throw RegistryError.validation("\(prefix): picker requires non-empty \"options\"")
+            }
+            guard let str = spec.defaultValue.stringValue else {
+                throw RegistryError.validation("\(prefix): picker default must be a string")
+            }
+            guard options.contains(str) else {
+                throw RegistryError.validation("\(prefix): default \"\(str)\" not in options \(options)")
+            }
+        case .slider:
+            guard let min = spec.min, let max = spec.max else {
+                throw RegistryError.validation("\(prefix): slider requires \"min\" and \"max\"")
+            }
+            guard min < max else {
+                throw RegistryError.validation("\(prefix): slider \"min\" must be < \"max\"")
+            }
+            guard let d = spec.defaultValue.doubleValue else {
+                throw RegistryError.validation("\(prefix): slider default must be a number")
+            }
+            guard d >= min, d <= max else {
+                throw RegistryError.validation("\(prefix): default \(d) outside [\(min), \(max)]")
+            }
+        case .toggle:
+            guard spec.defaultValue.boolValue != nil else {
+                throw RegistryError.validation("\(prefix): toggle default must be a bool")
+            }
+        }
+    }
+
     private struct Manifest: Decodable {
         let models: [ModelDefinition]
+    }
+
+    enum RegistryError: LocalizedError {
+        case bundledMissing
+        case validation(String)
+        var errorDescription: String? {
+            switch self {
+            case .bundledMissing: return "Bundled Models.json is missing."
+            case .validation(let msg): return msg
+            }
+        }
     }
 }

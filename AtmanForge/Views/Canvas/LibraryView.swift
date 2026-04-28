@@ -22,6 +22,7 @@ struct LibraryImageEntry: Identifiable {
 
     var prompt: String { meta?.prompt ?? job?.prompt ?? "" }
     var modelID: String { meta?.modelID ?? job?.modelID ?? "" }
+    @MainActor
     var modelDisplayName: String {
         ModelRegistry.shared.model(id: modelID)?.displayName ?? modelID
     }

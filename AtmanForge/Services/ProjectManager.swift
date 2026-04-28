@@ -461,6 +461,7 @@ class ProjectManager {
 
     // MARK: - Activity Persistence
 
+    @MainActor
     func loadActivity(from folder: URL) -> [GenerationJob] {
         let activityURL = folder.appendingPathComponent(".activity.json")
         guard fileManager.fileExists(atPath: activityURL.path),
@@ -471,6 +472,7 @@ class ProjectManager {
         return records.map { GenerationJob(from: $0) }
     }
 
+    @MainActor
     func saveActivity(_ jobs: [GenerationJob], to folder: URL) {
         let activityURL = folder.appendingPathComponent(".activity.json")
         let records = jobs

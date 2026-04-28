@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var savedKey: String = ""
     @State private var rootFolderPath: String = ""
     @State private var showSaveConfirmation = false
+    @State private var showRevertConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -106,6 +107,46 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Custom Models File") {
+                    Text(ModelRegistry.shared.hasUserOverride
+                         ? "Using your custom Models.json. Entries with matching ids override bundled models; new ids are appended."
+                         : "Using bundled models. Click Edit to start a custom Models.json from a copy of the bundled file.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if let err = ModelRegistry.shared.loadError {
+                        Text(err)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .textSelection(.enabled)
+                    }
+
+                    HStack(spacing: 8) {
+                        Button("Edit File") {
+                            do {
+                                try ModelRegistry.shared.openUserFileForEditing()
+                            } catch {
+                                appState.showToast("Could not open Models.json: \(error.localizedDescription)",
+                                                   icon: "xmark.circle", style: .error)
+                            }
+                        }
+                        if ModelRegistry.shared.hasUserOverride {
+                            Button("Reveal in Finder") {
+                                ModelRegistry.shared.revealUserFileInFinder()
+                            }
+                        }
+                        Button("Reload") {
+                            ModelRegistry.shared.reload()
+                        }
+                        Spacer()
+                        if ModelRegistry.shared.hasUserOverride {
+                            Button("Revert to Bundled…", role: .destructive) {
+                                showRevertConfirmation = true
+                            }
+                        }
+                    }
+                }
+
                 Section("Projects Folder") {
                     HStack {
                         Text(rootFolderPath.isEmpty ? "Not set" : rootFolderPath)
@@ -123,12 +164,29 @@ struct SettingsView: View {
             }
             .formStyle(.grouped)
         }
-        .frame(width: 500, height: 560)
+        .frame(width: 620, height: 600)
         .onAppear {
             let loaded = KeychainManager.load(key: "replicate_api_key") ?? ""
             replicateKey = loaded
             savedKey = loaded
             rootFolderPath = appState.projectManager.projectsRootURL?.path ?? ""
+        }
+        .confirmationDialog(
+            "Revert to bundled models?",
+            isPresented: $showRevertConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Custom File", role: .destructive) {
+                do {
+                    try ModelRegistry.shared.revertToBundled()
+                } catch {
+                    appState.showToast("Could not revert: \(error.localizedDescription)",
+                                       icon: "xmark.circle", style: .error)
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Your custom Models.json will be deleted.")
         }
     }
 
