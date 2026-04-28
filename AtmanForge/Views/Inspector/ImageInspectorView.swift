@@ -297,7 +297,7 @@ struct ImageInspectorView: View {
 
     @ViewBuilder
     private func comparisonImageView(_ job: GenerationJob) -> some View {
-        if job.referenceImagePaths.isEmpty || job.model == .removeBackground {
+        if job.referenceImagePaths.isEmpty || job.model?.kind == .backgroundRemoval {
             fullImage(job)
         } else {
             comparisonSlider(job)
@@ -521,7 +521,7 @@ struct ImageInspectorView: View {
                 .font(.subheadline)
                 .fontWeight(.semibold)
 
-            metadataRow("Model", value: job.model.displayName)
+            metadataRow("Model", value: job.displayName)
             metadataRow("Aspect Ratio", value: job.aspectRatio.displayName)
 
             if imageIndex < job.savedImagePaths.count, let root = projectRoot {
@@ -611,7 +611,7 @@ struct ImageInspectorView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
-                .disabled(appState.isRemovingBackground || job.model == .removeBackground)
+                .disabled(appState.isRemovingBackground || job.model?.kind == .backgroundRemoval)
 
                 Button {
                     appState.loadSettings(from: job)

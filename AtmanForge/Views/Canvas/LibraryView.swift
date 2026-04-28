@@ -21,7 +21,10 @@ struct LibraryImageEntry: Identifiable {
     let fileDate: Date
 
     var prompt: String { meta?.prompt ?? job?.prompt ?? "" }
-    var model: AIModel { meta?.model ?? job?.model ?? .gemini25 }
+    var modelID: String { meta?.modelID ?? job?.modelID ?? "" }
+    var modelDisplayName: String {
+        ModelRegistry.shared.model(id: modelID)?.displayName ?? modelID
+    }
     var createdAt: Date { meta?.createdAt ?? job?.createdAt ?? fileDate }
 
     var resolutionString: String {
@@ -128,7 +131,7 @@ struct LibraryView: View {
             }
         case .model:
             sorted = entries.sorted {
-                let cmp = $0.model.displayName.localizedStandardCompare($1.model.displayName)
+                let cmp = $0.modelDisplayName.localizedStandardCompare($1.modelDisplayName)
                 return ascending ? cmp == .orderedAscending : cmp == .orderedDescending
             }
         case .resolution:
@@ -493,7 +496,7 @@ struct LibraryView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(minWidth: 100)
 
-            Text(entry.model.displayName)
+            Text(entry.modelDisplayName)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)

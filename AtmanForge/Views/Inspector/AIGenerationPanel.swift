@@ -13,6 +13,9 @@ struct AIGenerationPanel: View {
     @State private var promptDebounceTask: Task<Void, Never>?
     @State private var sketchingReferenceIndex: Int?
 
+    private var model: ModelDefinition? { appState.selectedModel }
+    private var maxRefImages: Int { model?.maxReferenceImages ?? 0 }
+
     var body: some View {
         @Bindable var appState = appState
 
@@ -25,16 +28,17 @@ struct AIGenerationPanel: View {
                 .font(.headline)
 
             VStack(spacing: 6) {
-                ForEach(appState.visibleGenerationModels, id: \.self) { model in
+                ForEach(appState.visibleGenerationModels, id: \.id) { model in
+                    let isSelected = appState.selectedModelID == model.id
                     Button {
-                        appState.selectedModel = model
+                        appState.selectedModelID = model.id
                         appState.onModelChanged()
                     } label: {
                         HStack {
                             Text(model.displayName)
-                                .fontWeight(appState.selectedModel == model ? .semibold : .regular)
+                                .fontWeight(isSelected ? .semibold : .regular)
                             Spacer()
-                            if appState.selectedModel == model {
+                            if isSelected {
                                 Image(systemName: "checkmark")
                                     .font(.caption)
                             }
@@ -42,16 +46,16 @@ struct AIGenerationPanel: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 8)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(appState.selectedModel == model ? Color.accentColor.opacity(0.15) : Color.clear)
+                        .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
                         .contentShape(Rectangle())
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                         .overlay(
                             RoundedRectangle(cornerRadius: 6)
-                                .stroke(appState.selectedModel == model ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: 1)
+                                .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: 1)
                         )
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(appState.selectedModel == model ? .primary : .secondary)
+                    .foregroundStyle(isSelected ? .primary : .secondary)
                 }
             }
 
@@ -148,17 +152,17 @@ struct AIGenerationPanel: View {
                             .font(.subheadline)
                     }
                     .buttonStyle(.plain)
-                    .disabled(appState.referenceImages.count >= appState.selectedModel.maxReferenceImages)
+                    .disabled(appState.referenceImages.count >= maxRefImages)
                     #else
                     PhotosPicker(
                         selection: $selectedPhotos,
-                        maxSelectionCount: max(appState.selectedModel.maxReferenceImages - appState.referenceImages.count, 1),
+                        maxSelectionCount: max(maxRefImages - appState.referenceImages.count, 1),
                         matching: .images
                     ) {
                         Label("Browse", systemImage: "plus.circle")
                             .font(.subheadline)
                     }
-                    .disabled(appState.referenceImages.count >= appState.selectedModel.maxReferenceImages)
+                    .disabled(appState.referenceImages.count >= maxRefImages)
                     .onChange(of: selectedPhotos) { _, newItems in
                         Task {
                             var newImages: [Data] = []
@@ -188,7 +192,7 @@ struct AIGenerationPanel: View {
                         .foregroundStyle(Color.accentColor)
                     }
 
-                    Text("\(appState.referenceImages.count)/\(appState.selectedModel.maxReferenceImages) max")
+                    Text("\(appState.referenceImages.count)/\(maxRefImages) max")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -207,36 +211,13 @@ struct AIGenerationPanel: View {
                     .clipShape(RoundedRectangle(cornerRadius: 6))
             }
 
-            if appState.selectedModel == .flux2Pro {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Prompt Strength")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 8) {
-                        Text(appState.fluxPromptStrength, format: .number.precision(.fractionLength(2)))
-                            .font(.subheadline)
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                            .frame(width: 44, alignment: .leading)
-                        Image(systemName: "text.bubble")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Slider(value: $appState.fluxPromptStrength, in: 0...1, step: 0.05)
-                            .frame(maxWidth: .infinity)
-                        Image(systemName: "photo")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
             HStack {
                 Text("Aspect Ratio")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer()
                 Picker("Aspect Ratio", selection: $appState.selectedAspectRatio) {
-                    ForEach(appState.selectedModel.supportedAspectRatios, id: \.self) { ratio in
+                    ForEach(model?.aspectRatios ?? [], id: \.self) { ratio in
                         Text(ratio.displayName).tag(ratio)
                     }
                 }
@@ -244,14 +225,14 @@ struct AIGenerationPanel: View {
                 .fixedSize()
             }
 
-            if appState.selectedModel.supportsResolution {
+            if let model, model.supportsResolution {
                 HStack {
                     Text("Resolution")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     Spacer()
                     Picker("Resolution", selection: $appState.selectedResolution) {
-                        ForEach(appState.selectedModel.supportedResolutions, id: \.self) { res in
+                        ForEach(model.resolutions, id: \.self) { res in
                             Text(res.displayName).tag(res)
                         }
                     }
@@ -260,7 +241,7 @@ struct AIGenerationPanel: View {
                 }
             }
 
-            if appState.selectedModel.maxImageCount > 1 {
+            if let model, model.maxImages > 1 {
                 HStack {
                     Text("Images")
                         .font(.subheadline)
@@ -276,61 +257,18 @@ struct AIGenerationPanel: View {
                             get: { Double(appState.imageCount) },
                             set: { appState.imageCount = Int($0) }
                         ),
-                        in: 1...Double(appState.selectedModel.maxImageCount),
+                        in: 1...Double(model.maxImages),
                         step: 1
                     )
                     .frame(width: 100)
                 }
             }
 
-            if appState.selectedModel == .gptImage15 {
+            if let specs = model?.parameters, !specs.isEmpty {
                 Divider()
-
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("GPT Settings")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-
-                    HStack {
-                        Text("Quality")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Picker("Quality", selection: $appState.gptQuality) {
-                            ForEach(GPTQuality.allCases, id: \.self) { quality in
-                                Text(quality.displayName).tag(quality)
-                            }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                    }
-
-                    HStack {
-                        Text("Background")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Picker("Background", selection: $appState.gptBackground) {
-                            ForEach(GPTBackground.allCases, id: \.self) { bg in
-                                Text(bg.displayName).tag(bg)
-                            }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                    }
-
-                    HStack {
-                        Text("Input Fidelity")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Picker("Input Fidelity", selection: $appState.gptInputFidelity) {
-                            ForEach(GPTInputFidelity.allCases, id: \.self) { fidelity in
-                                Text(fidelity.displayName).tag(fidelity)
-                            }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
+                    ForEach(specs) { spec in
+                        parameterControl(spec)
                     }
                 }
             }
@@ -404,7 +342,7 @@ struct AIGenerationPanel: View {
                 appState.commitUndoCheckpoint()
             }
         }
-        .onChange(of: appState.selectedModel) {
+        .onChange(of: appState.selectedModelID) {
             appState.onModelChanged()
             appState.commitUndoCheckpoint()
         }
@@ -417,16 +355,7 @@ struct AIGenerationPanel: View {
         .onChange(of: appState.imageCount) {
             appState.commitUndoCheckpoint()
         }
-        .onChange(of: appState.fluxPromptStrength) {
-            appState.commitUndoCheckpoint()
-        }
-        .onChange(of: appState.gptQuality) {
-            appState.commitUndoCheckpoint()
-        }
-        .onChange(of: appState.gptBackground) {
-            appState.commitUndoCheckpoint()
-        }
-        .onChange(of: appState.gptInputFidelity) {
+        .onChange(of: appState.parameterValues) {
             appState.commitUndoCheckpoint()
         }
         .onChange(of: appState.referenceImages) {
@@ -434,9 +363,81 @@ struct AIGenerationPanel: View {
         }
     }
 
+    // MARK: - Generic Parameter Controls
+
+    @ViewBuilder
+    private func parameterControl(_ spec: ParameterSpec) -> some View {
+        @Bindable var appState = appState
+
+        switch spec.control {
+        case .picker:
+            HStack {
+                Text(spec.label)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Picker(spec.label, selection: stringBinding(for: spec)) {
+                    ForEach(spec.options ?? [], id: \.self) { option in
+                        Text(option.capitalized).tag(option)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+
+        case .slider:
+            VStack(alignment: .leading, spacing: 6) {
+                Text(spec.label)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Text(doubleBinding(for: spec).wrappedValue, format: .number.precision(.fractionLength(2)))
+                        .font(.subheadline)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, alignment: .leading)
+                    Slider(
+                        value: doubleBinding(for: spec),
+                        in: (spec.min ?? 0)...(spec.max ?? 1),
+                        step: spec.step ?? 0.05
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+            }
+
+        case .toggle:
+            Toggle(spec.label, isOn: boolBinding(for: spec))
+                .font(.subheadline)
+        }
+    }
+
+    private func stringBinding(for spec: ParameterSpec) -> Binding<String> {
+        let fallback = spec.defaultValue.stringValue ?? ""
+        return Binding(
+            get: { appState.parameterValues[spec.key]?.stringValue ?? fallback },
+            set: { appState.parameterValues[spec.key] = .string($0) }
+        )
+    }
+
+    private func doubleBinding(for spec: ParameterSpec) -> Binding<Double> {
+        let fallback = spec.defaultValue.doubleValue ?? (spec.min ?? 0)
+        return Binding(
+            get: { appState.parameterValues[spec.key]?.doubleValue ?? fallback },
+            set: { appState.parameterValues[spec.key] = .double($0) }
+        )
+    }
+
+    private func boolBinding(for spec: ParameterSpec) -> Binding<Bool> {
+        let fallback = spec.defaultValue.boolValue ?? false
+        return Binding(
+            get: { appState.parameterValues[spec.key]?.boolValue ?? fallback },
+            set: { appState.parameterValues[spec.key] = .bool($0) }
+        )
+    }
+
     #if os(macOS)
     private func browseForImages() {
-        let remaining = appState.selectedModel.maxReferenceImages - appState.referenceImages.count
+        let remaining = maxRefImages - appState.referenceImages.count
         guard remaining > 0 else { return }
 
         let panel = NSOpenPanel()
@@ -479,12 +480,11 @@ struct AIGenerationPanel: View {
     #endif
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-        let remaining = appState.selectedModel.maxReferenceImages - appState.referenceImages.count
+        let remaining = maxRefImages - appState.referenceImages.count
         guard remaining > 0 else { return false }
 
         let providersToProcess = Array(providers.prefix(remaining))
         for provider in providersToProcess {
-            // Try loading as file URL first (common for Finder drag)
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
                 provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
                     guard let data = item as? Data,

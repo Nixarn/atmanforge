@@ -14,7 +14,6 @@ class ReplicateProvider: AIProvider {
     func generateImage(request: GenerationRequest, parallelDelay: TimeInterval = 5.0, onPredictionCreated: @Sendable @escaping (String, String?) -> Void) async throws -> GenerationResult {
         let input = try await buildInput(for: request)
 
-        // Build a sanitized JSON string for request params (exclude image bodies)
         let sanitizedInput: [String: Any] = input.filter { key, _ in
             key != "image" && key != "image_input" && key != "input_images"
         }
@@ -73,9 +72,7 @@ class ReplicateProvider: AIProvider {
                         errors.append(error)
                     }
                 }
-                if successes.isEmpty, let firstError = errors.first {
-                    // All failed — preserve existing behavior by returning empty with errors
-                    // We can't throw from withTaskGroup, so return a result the caller handles
+                if successes.isEmpty {
                     return GenerationResult(
                         imageDataArray: [],
                         partialErrors: errors.map { $0.localizedDescription }
@@ -88,10 +85,10 @@ class ReplicateProvider: AIProvider {
         }
     }
 
-    func removeBackground(imageData: Data) async throws -> Data {
+    func removeBackground(imageData: Data, model: ModelDefinition) async throws -> Data {
         let fileURL = try await uploadFile(imageData, filename: "bg_remove.png")
 
-        let url = URL(string: "\(baseURL)/models/bria/remove-background/predictions")!
+        let url = URL(string: "\(baseURL)/models/\(model.replicateModelID)/predictions")!
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -99,13 +96,17 @@ class ReplicateProvider: AIProvider {
         urlRequest.setValue("wait", forHTTPHeaderField: "Prefer")
         urlRequest.timeoutInterval = 120
 
-        let body: [String: Any] = [
-            "input": [
-                "image": fileURL,
-                "content_moderation": false,
-                "preserve_alpha": true
-            ]
-        ]
+        var input: [String: Any] = [:]
+        if let refKey = model.referenceKey {
+            input[refKey.name] = fileURL
+        } else {
+            input["image"] = fileURL
+        }
+        for (k, v) in model.staticInputs {
+            input[k] = v.jsonObject
+        }
+
+        let body: [String: Any] = ["input": input]
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: urlRequest)
@@ -147,75 +148,30 @@ class ReplicateProvider: AIProvider {
             "aspect_ratio": request.aspectRatio.rawValue,
         ]
 
-        if !request.referenceImages.isEmpty {
+        if request.model.supportsResolution, let resolution = request.resolution {
+            input["resolution"] = resolution.rawValue
+        }
+
+        if !request.referenceImages.isEmpty, let refKey = request.model.referenceKey {
             let fileURLs = try await uploadReferenceImages(request.referenceImages)
-            switch request.model {
-            case .gptImage15:
-                input["input_images"] = fileURLs
-            case .qwenImage, .qwenImage2512, .flux2Pro, .flux2Max:
-                // Qwen and flux2 models expect a single image parameter named "image".
-                if let first = fileURLs.first {
-                    input["image"] = first
-                }
-            default:
-                input["image_input"] = fileURLs
+            switch refKey.kind {
+            case .single:
+                if let first = fileURLs.first { input[refKey.name] = first }
+            case .array:
+                input[refKey.name] = fileURLs
             }
         }
 
-        if request.model.supportsNativeImageCount {
-            input["number_of_images"] = request.imageCount
+        if let batchKey = request.model.nativeBatchKey {
+            input[batchKey] = request.imageCount
         }
 
-        switch request.model {
-        case .gemini25, .removeBackground:
-            break
+        for (key, value) in request.model.staticInputs {
+            input[key] = value.jsonObject
+        }
 
-        case .gemini30:
-            if let resolution = request.resolution {
-                input["resolution"] = resolution.rawValue
-            }
-
-        case .gemini31Flash:
-            input["output_format"] = "png"
-            if let resolution = request.resolution {
-                input["resolution"] = resolution.rawValue
-            }
-
-        case .qwenImage:
-            input["output_format"] = "png"
-            input["disable_safety_checker"] = true
-
-        case .qwenImage2512:
-            input["output_format"] = "png"
-			input["disable_safety_checker"] = true
-
-        case .zImageTurbo:
-            input["output_format"] = "png"
-
-        case .flux2Pro:
-            input["output_format"] = "png"
-            input["safety_tolerance"] = 5
-            if let strength = request.fluxPromptStrength {
-                input["prompt_strength"] = strength
-            }
-
-        case .flux2Max:
-            input["output_format"] = "png"
-            input["safety_tolerance"] = 5
-            if let strength = request.fluxPromptStrength {
-                input["prompt_strength"] = strength
-            }
-
-        case .gptImage15:
-            if let quality = request.gptQuality {
-                input["quality"] = quality.rawValue
-            }
-            if let background = request.gptBackground {
-                input["background"] = background.rawValue
-            }
-            if let fidelity = request.gptInputFidelity {
-                input["input_fidelity"] = fidelity.rawValue
-            }
+        for (key, value) in request.parameters {
+            input[key] = value.jsonObject
         }
 
         return input
@@ -437,4 +393,3 @@ enum ReplicateError: LocalizedError {
         }
     }
 }
-

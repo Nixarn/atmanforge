@@ -119,7 +119,7 @@ struct ActivityView: View {
             // Info
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(job.model.displayName)
+                    Text(job.displayName)
                         .font(.subheadline)
                         .fontWeight(.medium)
                     if (job.status == .completed || job.status == .failed || job.status == .cancelled) && hoveredJobID == job.id {

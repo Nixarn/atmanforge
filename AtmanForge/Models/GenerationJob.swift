@@ -3,18 +3,15 @@ import SwiftUI
 @Observable
 class GenerationJob: Identifiable {
     let id: UUID
-    let model: AIModel
+    let modelID: String
     let prompt: String
     let projectID: String
     let createdAt: Date
 
-    // All generation settings
     let aspectRatio: AspectRatio
     let resolution: ImageResolution?
     let imageCount: Int
-    let gptQuality: GPTQuality?
-    let gptBackground: GPTBackground?
-    let gptInputFidelity: GPTInputFidelity?
+    let parameters: [String: ParameterValue]
 
     var status: Status = .pending
     var resultImageData: [Data] = []
@@ -24,7 +21,6 @@ class GenerationJob: Identifiable {
     var errorMessage: String?
     var requestParamsJSON: String?
 
-    // Cancel & timing (transient, not persisted except startedAt/completedAt)
     var cancelURLs: [String] = []
     var startedAt: Date?
     var completedAt: Date?
@@ -43,35 +39,38 @@ class GenerationJob: Identifiable {
         return end.timeIntervalSince(start)
     }
 
-    init(model: AIModel, prompt: String, projectID: String,
+    var model: ModelDefinition? {
+        ModelRegistry.shared.model(id: modelID)
+    }
+
+    var displayName: String {
+        model?.displayName ?? modelID
+    }
+
+    init(modelID: String, prompt: String, projectID: String,
          aspectRatio: AspectRatio, resolution: ImageResolution?,
-         imageCount: Int, gptQuality: GPTQuality?,
-         gptBackground: GPTBackground?, gptInputFidelity: GPTInputFidelity?) {
+         imageCount: Int, parameters: [String: ParameterValue]) {
         self.id = UUID()
-        self.model = model
+        self.modelID = modelID
         self.prompt = prompt
         self.projectID = projectID
         self.createdAt = Date()
         self.aspectRatio = aspectRatio
         self.resolution = resolution
         self.imageCount = imageCount
-        self.gptQuality = gptQuality
-        self.gptBackground = gptBackground
-        self.gptInputFidelity = gptInputFidelity
+        self.parameters = parameters
     }
 
     init(from record: ActivityRecord) {
         self.id = record.id
-        self.model = record.model
+        self.modelID = record.modelID
         self.prompt = record.prompt
         self.projectID = record.projectID
         self.createdAt = record.createdAt
         self.aspectRatio = record.aspectRatio
         self.resolution = record.resolution
         self.imageCount = record.imageCount
-        self.gptQuality = record.gptQuality
-        self.gptBackground = record.gptBackground
-        self.gptInputFidelity = record.gptInputFidelity
+        self.parameters = record.parameters
         self.status = record.status
         self.savedImagePaths = record.savedImagePaths
         self.thumbnailPaths = record.thumbnailPaths
@@ -84,10 +83,9 @@ class GenerationJob: Identifiable {
 
     func toRecord() -> ActivityRecord {
         ActivityRecord(
-            id: id, model: model, prompt: prompt, projectID: projectID,
+            id: id, modelID: modelID, prompt: prompt, projectID: projectID,
             createdAt: createdAt, aspectRatio: aspectRatio, resolution: resolution,
-            imageCount: imageCount, gptQuality: gptQuality,
-            gptBackground: gptBackground, gptInputFidelity: gptInputFidelity,
+            imageCount: imageCount, parameters: parameters,
             status: status, savedImagePaths: savedImagePaths,
             thumbnailPaths: thumbnailPaths, referenceImagePaths: referenceImagePaths,
             errorMessage: errorMessage,
@@ -100,10 +98,23 @@ class GenerationJob: Identifiable {
         var parts: [String] = [aspectRatio.displayName]
         if let res = resolution { parts.append(res.displayName) }
         if imageCount > 1 { parts.append("\(imageCount) images") }
-        if let q = gptQuality { parts.append("Q:\(q.displayName)") }
-        if let bg = gptBackground, bg != .auto { parts.append("BG:\(bg.displayName)") }
-        if let f = gptInputFidelity { parts.append("Fidelity:\(f.displayName)") }
+        if let specs = model?.parameters {
+            for spec in specs {
+                guard let value = parameters[spec.key] else { continue }
+                switch value {
+                case .string(let s): parts.append("\(spec.label): \(s)")
+                case .double(let d): parts.append("\(spec.label): \(formatted(d))")
+                case .bool(let b): parts.append("\(spec.label): \(b ? "on" : "off")")
+                }
+            }
+        }
         return parts.joined(separator: " · ")
+    }
+
+    private func formatted(_ d: Double) -> String {
+        d.truncatingRemainder(dividingBy: 1) == 0
+            ? String(Int(d))
+            : String(format: "%.2f", d)
     }
 
     var progressText: String {
@@ -139,16 +150,14 @@ class GenerationJob: Identifiable {
 
 struct ActivityRecord: Codable {
     let id: UUID
-    let model: AIModel
+    let modelID: String
     let prompt: String
     let projectID: String
     let createdAt: Date
     let aspectRatio: AspectRatio
     let resolution: ImageResolution?
     let imageCount: Int
-    let gptQuality: GPTQuality?
-    let gptBackground: GPTBackground?
-    let gptInputFidelity: GPTInputFidelity?
+    let parameters: [String: ParameterValue]
     let status: GenerationJob.Status
     let savedImagePaths: [String]
     let thumbnailPaths: [String]
@@ -158,24 +167,22 @@ struct ActivityRecord: Codable {
     let completedAt: Date?
     let requestParamsJSON: String?
 
-    init(id: UUID, model: AIModel, prompt: String, projectID: String,
+    init(id: UUID, modelID: String, prompt: String, projectID: String,
          createdAt: Date, aspectRatio: AspectRatio, resolution: ImageResolution?,
-         imageCount: Int, gptQuality: GPTQuality?, gptBackground: GPTBackground?,
-         gptInputFidelity: GPTInputFidelity?, status: GenerationJob.Status,
+         imageCount: Int, parameters: [String: ParameterValue],
+         status: GenerationJob.Status,
          savedImagePaths: [String], thumbnailPaths: [String], referenceImagePaths: [String] = [],
          errorMessage: String?,
          startedAt: Date? = nil, completedAt: Date? = nil, requestParamsJSON: String? = nil) {
         self.id = id
-        self.model = model
+        self.modelID = modelID
         self.prompt = prompt
         self.projectID = projectID
         self.createdAt = createdAt
         self.aspectRatio = aspectRatio
         self.resolution = resolution
         self.imageCount = imageCount
-        self.gptQuality = gptQuality
-        self.gptBackground = gptBackground
-        self.gptInputFidelity = gptInputFidelity
+        self.parameters = parameters
         self.status = status
         self.savedImagePaths = savedImagePaths
         self.thumbnailPaths = thumbnailPaths
@@ -186,40 +193,136 @@ struct ActivityRecord: Codable {
         self.requestParamsJSON = requestParamsJSON
     }
 
+    enum CodingKeys: String, CodingKey {
+        case id, prompt, projectID, createdAt, aspectRatio, resolution
+        case imageCount, status, savedImagePaths, thumbnailPaths
+        case referenceImagePaths, errorMessage, startedAt, completedAt
+        case requestParamsJSON, parameters
+        case modelID = "model"
+        // legacy
+        case gptQuality, gptBackground, gptInputFidelity
+    }
+
     init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(UUID.self, forKey: .id)
-        model = try container.decode(AIModel.self, forKey: .model)
-        prompt = try container.decode(String.self, forKey: .prompt)
-        projectID = try container.decode(String.self, forKey: .projectID)
-        createdAt = try container.decode(Date.self, forKey: .createdAt)
-        aspectRatio = try container.decode(AspectRatio.self, forKey: .aspectRatio)
-        resolution = try container.decodeIfPresent(ImageResolution.self, forKey: .resolution)
-        imageCount = try container.decode(Int.self, forKey: .imageCount)
-        gptQuality = try container.decodeIfPresent(GPTQuality.self, forKey: .gptQuality)
-        gptBackground = try container.decodeIfPresent(GPTBackground.self, forKey: .gptBackground)
-        gptInputFidelity = try container.decodeIfPresent(GPTInputFidelity.self, forKey: .gptInputFidelity)
-        status = try container.decode(GenerationJob.Status.self, forKey: .status)
-        savedImagePaths = try container.decode([String].self, forKey: .savedImagePaths)
-        thumbnailPaths = try container.decode([String].self, forKey: .thumbnailPaths)
-        referenceImagePaths = try container.decodeIfPresent([String].self, forKey: .referenceImagePaths) ?? []
-        errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
-        startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
-        completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
-        requestParamsJSON = try container.decodeIfPresent(String.self, forKey: .requestParamsJSON)
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        modelID = try c.decode(String.self, forKey: .modelID)
+        prompt = try c.decode(String.self, forKey: .prompt)
+        projectID = try c.decode(String.self, forKey: .projectID)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        aspectRatio = try c.decode(AspectRatio.self, forKey: .aspectRatio)
+        resolution = try c.decodeIfPresent(ImageResolution.self, forKey: .resolution)
+        imageCount = try c.decode(Int.self, forKey: .imageCount)
+        status = try c.decode(GenerationJob.Status.self, forKey: .status)
+        savedImagePaths = try c.decode([String].self, forKey: .savedImagePaths)
+        thumbnailPaths = try c.decode([String].self, forKey: .thumbnailPaths)
+        referenceImagePaths = try c.decodeIfPresent([String].self, forKey: .referenceImagePaths) ?? []
+        errorMessage = try c.decodeIfPresent(String.self, forKey: .errorMessage)
+        startedAt = try c.decodeIfPresent(Date.self, forKey: .startedAt)
+        completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
+        requestParamsJSON = try c.decodeIfPresent(String.self, forKey: .requestParamsJSON)
+        parameters = ActivityRecord.decodeParameters(from: c)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(modelID, forKey: .modelID)
+        try c.encode(prompt, forKey: .prompt)
+        try c.encode(projectID, forKey: .projectID)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encode(aspectRatio, forKey: .aspectRatio)
+        try c.encodeIfPresent(resolution, forKey: .resolution)
+        try c.encode(imageCount, forKey: .imageCount)
+        try c.encode(parameters, forKey: .parameters)
+        try c.encode(status, forKey: .status)
+        try c.encode(savedImagePaths, forKey: .savedImagePaths)
+        try c.encode(thumbnailPaths, forKey: .thumbnailPaths)
+        try c.encode(referenceImagePaths, forKey: .referenceImagePaths)
+        try c.encodeIfPresent(errorMessage, forKey: .errorMessage)
+        try c.encodeIfPresent(startedAt, forKey: .startedAt)
+        try c.encodeIfPresent(completedAt, forKey: .completedAt)
+        try c.encodeIfPresent(requestParamsJSON, forKey: .requestParamsJSON)
+    }
+
+    static func decodeParameters(from c: KeyedDecodingContainer<CodingKeys>) -> [String: ParameterValue] {
+        var params = (try? c.decode([String: ParameterValue].self, forKey: .parameters)) ?? [:]
+        if let q = try? c.decodeIfPresent(String.self, forKey: .gptQuality) {
+            params["quality"] = .string(q)
+        }
+        if let bg = try? c.decodeIfPresent(String.self, forKey: .gptBackground) {
+            params["background"] = .string(bg)
+        }
+        if let f = try? c.decodeIfPresent(String.self, forKey: .gptInputFidelity) {
+            params["input_fidelity"] = .string(f)
+        }
+        return params
     }
 }
 
 struct ImageMeta: Codable {
     let prompt: String
-    let model: AIModel
+    let modelID: String
     let aspectRatio: AspectRatio
     let resolution: ImageResolution?
     let imageCount: Int
-    let gptQuality: GPTQuality?
-    let gptBackground: GPTBackground?
-    let gptInputFidelity: GPTInputFidelity?
+    let parameters: [String: ParameterValue]
     let referenceHashes: [String]
     let createdAt: Date
-}
 
+    init(prompt: String, modelID: String, aspectRatio: AspectRatio,
+         resolution: ImageResolution?, imageCount: Int,
+         parameters: [String: ParameterValue], referenceHashes: [String], createdAt: Date) {
+        self.prompt = prompt
+        self.modelID = modelID
+        self.aspectRatio = aspectRatio
+        self.resolution = resolution
+        self.imageCount = imageCount
+        self.parameters = parameters
+        self.referenceHashes = referenceHashes
+        self.createdAt = createdAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case prompt, aspectRatio, resolution, imageCount, parameters
+        case referenceHashes, createdAt
+        case modelID = "model"
+        // legacy
+        case gptQuality, gptBackground, gptInputFidelity
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        prompt = try c.decode(String.self, forKey: .prompt)
+        modelID = try c.decode(String.self, forKey: .modelID)
+        aspectRatio = try c.decode(AspectRatio.self, forKey: .aspectRatio)
+        resolution = try c.decodeIfPresent(ImageResolution.self, forKey: .resolution)
+        imageCount = try c.decode(Int.self, forKey: .imageCount)
+        referenceHashes = try c.decode([String].self, forKey: .referenceHashes)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+
+        var params = (try? c.decode([String: ParameterValue].self, forKey: .parameters)) ?? [:]
+        if let q = try? c.decodeIfPresent(String.self, forKey: .gptQuality) {
+            params["quality"] = .string(q)
+        }
+        if let bg = try? c.decodeIfPresent(String.self, forKey: .gptBackground) {
+            params["background"] = .string(bg)
+        }
+        if let f = try? c.decodeIfPresent(String.self, forKey: .gptInputFidelity) {
+            params["input_fidelity"] = .string(f)
+        }
+        parameters = params
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(prompt, forKey: .prompt)
+        try c.encode(modelID, forKey: .modelID)
+        try c.encode(aspectRatio, forKey: .aspectRatio)
+        try c.encodeIfPresent(resolution, forKey: .resolution)
+        try c.encode(imageCount, forKey: .imageCount)
+        try c.encode(parameters, forKey: .parameters)
+        try c.encode(referenceHashes, forKey: .referenceHashes)
+        try c.encode(createdAt, forKey: .createdAt)
+    }
+}

@@ -26,15 +26,12 @@ enum LibraryViewMode: String, CaseIterable {
 
 struct GenerationParamsSnapshot: Equatable {
     let prompt: String
-    let selectedModel: AIModel
+    let selectedModelID: String
     let selectedResolution: ImageResolution
     let selectedAspectRatio: AspectRatio
     let imageCount: Int
     let referenceImages: [Data]
-    let gptQuality: GPTQuality
-    let gptBackground: GPTBackground
-    let gptInputFidelity: GPTInputFidelity
-    let fluxPromptStrength: Double
+    let parameterValues: [String: ParameterValue]
 }
 
 @MainActor
@@ -100,21 +97,22 @@ class AppState {
         didSet { UserDefaults.standard.set(Array(hiddenModels), forKey: "hiddenModels") }
     }
 
-    var visibleGenerationModels: [AIModel] {
-        AIModel.generationModels.filter { !hiddenModels.contains($0.rawValue) }
+    var visibleGenerationModels: [ModelDefinition] {
+        ModelRegistry.shared.generationModels.filter { !hiddenModels.contains($0.id) }
+    }
+
+    var selectedModel: ModelDefinition? {
+        ModelRegistry.shared.model(id: selectedModelID)
     }
 
     // MARK: - AI Generation
     var prompt = ""
-    var selectedModel: AIModel = .gemini25
+    var selectedModelID: String = "gemini-2.5"
     var selectedResolution: ImageResolution = .r2k
     var selectedAspectRatio: AspectRatio = .r1_1
     var imageCount: Int = 1
     var referenceImages: [Data] = []
-    var gptQuality: GPTQuality = .medium
-    var gptBackground: GPTBackground = .auto
-    var gptInputFidelity: GPTInputFidelity = .high
-    var fluxPromptStrength: Double = 0.5
+    var parameterValues: [String: ParameterValue] = [:]
 
     // MARK: - Undo/Redo
     var undoStack: [GenerationParamsSnapshot] = []
@@ -172,25 +170,24 @@ class AppState {
     // MARK: - Model Changed
 
     func onModelChanged() {
-        // Clamp image count to model max
-        if imageCount > selectedModel.maxImageCount {
-            imageCount = selectedModel.maxImageCount
-        }
+        guard let model = selectedModel else { return }
 
-        // Clamp reference images to model max
-        if referenceImages.count > selectedModel.maxReferenceImages {
-            referenceImages = Array(referenceImages.prefix(selectedModel.maxReferenceImages))
+        if imageCount > model.maxImages {
+            imageCount = model.maxImages
         }
-
-        // Reset aspect ratio if not supported by new model
-        if !selectedModel.supportedAspectRatios.contains(selectedAspectRatio) {
-            selectedAspectRatio = .r1_1
+        if referenceImages.count > model.maxReferenceImages {
+            referenceImages = Array(referenceImages.prefix(model.maxReferenceImages))
         }
-
-        // Reset resolution if not supported by new model
-        if !selectedModel.supportedResolutions.contains(selectedResolution),
-           let lowest = selectedModel.supportedResolutions.first {
+        if !model.aspectRatios.contains(selectedAspectRatio) {
+            selectedAspectRatio = model.aspectRatios.first ?? .r1_1
+        }
+        if !model.resolutions.isEmpty,
+           !model.resolutions.contains(selectedResolution),
+           let lowest = model.resolutions.first {
             selectedResolution = lowest
+        }
+        for spec in model.parameters where parameterValues[spec.key] == nil {
+            parameterValues[spec.key] = spec.defaultValue
         }
     }
 
@@ -199,15 +196,12 @@ class AppState {
     func currentSnapshot() -> GenerationParamsSnapshot {
         GenerationParamsSnapshot(
             prompt: prompt,
-            selectedModel: selectedModel,
+            selectedModelID: selectedModelID,
             selectedResolution: selectedResolution,
             selectedAspectRatio: selectedAspectRatio,
             imageCount: imageCount,
             referenceImages: referenceImages,
-            gptQuality: gptQuality,
-            gptBackground: gptBackground,
-            gptInputFidelity: gptInputFidelity,
-            fluxPromptStrength: fluxPromptStrength
+            parameterValues: parameterValues
         )
     }
 
@@ -239,21 +233,18 @@ class AppState {
     private func restore(_ snapshot: GenerationParamsSnapshot) {
         isRestoringSnapshot = true
         prompt = snapshot.prompt
-        selectedModel = snapshot.selectedModel
+        selectedModelID = snapshot.selectedModelID
         selectedResolution = snapshot.selectedResolution
         selectedAspectRatio = snapshot.selectedAspectRatio
         imageCount = snapshot.imageCount
         referenceImages = snapshot.referenceImages
-        gptQuality = snapshot.gptQuality
-        gptBackground = snapshot.gptBackground
-        gptInputFidelity = snapshot.gptInputFidelity
-        fluxPromptStrength = snapshot.fluxPromptStrength
+        parameterValues = snapshot.parameterValues
         lastCommittedSnapshot = snapshot
         isRestoringSnapshot = false
     }
 
     func addReferenceImages(_ images: [Data]) {
-        let remaining = selectedModel.maxReferenceImages - referenceImages.count
+        let remaining = (selectedModel?.maxReferenceImages ?? 0) - referenceImages.count
         guard remaining > 0 else { return }
         for imageData in images.prefix(remaining) {
             if let normalized = Self.normalizeImageData(imageData) {
@@ -660,8 +651,8 @@ class AppState {
     // MARK: - Reuse Settings
 
     func loadSettings(from job: GenerationJob) {
-        hiddenModels.remove(job.model.rawValue)
-        selectedModel = job.model
+        hiddenModels.remove(job.modelID)
+        selectedModelID = job.modelID
         onModelChanged()
         prompt = job.prompt
         selectedAspectRatio = job.aspectRatio
@@ -669,16 +660,9 @@ class AppState {
             selectedResolution = res
         }
         imageCount = job.imageCount
-        if let q = job.gptQuality {
-            gptQuality = q
+        for (key, value) in job.parameters {
+            parameterValues[key] = value
         }
-        if let bg = job.gptBackground {
-            gptBackground = bg
-        }
-        if let f = job.gptInputFidelity {
-            gptInputFidelity = f
-        }
-        // Restore reference images from saved paths
         if let root = projectManager.projectsRootURL, !job.referenceImagePaths.isEmpty {
             referenceImages.removeAll()
             for path in job.referenceImagePaths {
@@ -692,7 +676,11 @@ class AppState {
     }
 
     func retryJob(_ job: GenerationJob) {
-        // Load reference images from saved paths
+        guard let model = job.model else {
+            errorMessage = "Unknown model: \(job.modelID)"
+            return
+        }
+
         var retryReferenceImages: [Data] = []
         if let root = projectManager.projectsRootURL {
             for path in job.referenceImagePaths {
@@ -705,20 +693,16 @@ class AppState {
 
         runGeneration(
             prompt: job.prompt,
-            model: job.model,
+            model: model,
             aspectRatio: job.aspectRatio,
             resolution: job.resolution,
             imageCount: job.imageCount,
             referenceImages: retryReferenceImages,
-            gptQuality: job.gptQuality,
-            gptBackground: job.gptBackground,
-            gptInputFidelity: job.gptInputFidelity,
-            fluxPromptStrength: nil
+            parameters: job.parameters
         )
     }
 
     func loadSettingsCompatible(from job: GenerationJob) {
-        // Load all parameters including model
         loadSettings(from: job)
     }
 
@@ -824,33 +808,36 @@ class AppState {
             statusMessage = "Enter a prompt first."
             return
         }
+        guard let model = selectedModel else {
+            errorMessage = "Unknown model: \(selectedModelID)"
+            statusMessage = "Unknown model."
+            return
+        }
 
-        let currentModel = selectedModel
+        var requestParams: [String: ParameterValue] = [:]
+        for spec in model.parameters {
+            requestParams[spec.key] = parameterValues[spec.key] ?? spec.defaultValue
+        }
+
         runGeneration(
             prompt: trimmedPrompt,
-            model: currentModel,
+            model: model,
             aspectRatio: selectedAspectRatio,
-            resolution: currentModel.supportsResolution ? selectedResolution : nil,
+            resolution: model.supportsResolution ? selectedResolution : nil,
             imageCount: imageCount,
             referenceImages: referenceImages,
-            gptQuality: currentModel == .gptImage15 ? gptQuality : nil,
-            gptBackground: currentModel == .gptImage15 ? gptBackground : nil,
-            gptInputFidelity: currentModel == .gptImage15 ? gptInputFidelity : nil,
-            fluxPromptStrength: (currentModel == .flux2Pro || currentModel == .flux2Max) ? fluxPromptStrength : nil
+            parameters: requestParams
         )
     }
 
     private func runGeneration(
         prompt: String,
-        model: AIModel,
+        model: ModelDefinition,
         aspectRatio: AspectRatio,
         resolution: ImageResolution?,
         imageCount: Int,
         referenceImages: [Data],
-        gptQuality: GPTQuality?,
-        gptBackground: GPTBackground?,
-        gptInputFidelity: GPTInputFidelity?,
-        fluxPromptStrength: Double?
+        parameters: [String: ParameterValue]
     ) {
         guard let projectRoot = projectManager.projectsRootURL else {
             errorMessage = "No project folder open."
@@ -865,15 +852,13 @@ class AppState {
         }
 
         let job = GenerationJob(
-            model: model,
+            modelID: model.id,
             prompt: prompt,
             projectID: projectRoot.lastPathComponent,
             aspectRatio: aspectRatio,
             resolution: resolution,
             imageCount: imageCount,
-            gptQuality: gptQuality,
-            gptBackground: gptBackground,
-            gptInputFidelity: gptInputFidelity
+            parameters: parameters
         )
         withAnimation(.easeInOut(duration: 0.2)) {
             generationJobs.insert(job, at: 0)
@@ -899,10 +884,7 @@ class AppState {
             resolution: resolution,
             imageCount: imageCount,
             referenceImages: referenceImages,
-            gptQuality: gptQuality,
-            gptBackground: gptBackground,
-            gptInputFidelity: gptInputFidelity,
-            fluxPromptStrength: fluxPromptStrength
+            parameters: parameters
         )
 
         let provider = ReplicateProvider(apiKey: apiKey)
@@ -927,13 +909,11 @@ class AppState {
 
                 let meta = ImageMeta(
                     prompt: prompt,
-                    model: model,
+                    modelID: model.id,
                     aspectRatio: aspectRatio,
                     resolution: resolution,
                     imageCount: imageCount,
-                    gptQuality: gptQuality,
-                    gptBackground: gptBackground,
-                    gptInputFidelity: gptInputFidelity,
+                    parameters: parameters,
                     referenceHashes: referenceHashes,
                     createdAt: Date()
                 )
@@ -951,15 +931,13 @@ class AppState {
                     let successCount = result.imageDataArray.count
                     let totalCount = successCount + result.partialErrors.count
                     let failedJob = GenerationJob(
-                        model: model,
+                        modelID: model.id,
                         prompt: prompt,
                         projectID: projectRoot.lastPathComponent,
                         aspectRatio: aspectRatio,
                         resolution: resolution,
                         imageCount: imageCount,
-                        gptQuality: gptQuality,
-                        gptBackground: gptBackground,
-                        gptInputFidelity: gptInputFidelity
+                        parameters: parameters
                     )
                     failedJob.startedAt = job.startedAt
                     failedJob.completedAt = Date()
@@ -1021,6 +999,10 @@ class AppState {
             errorMessage = "No Replicate API key configured. Add it in Settings."
             return
         }
+        guard let bgModel = ModelRegistry.shared.backgroundRemovalModel else {
+            errorMessage = "No background removal model defined."
+            return
+        }
 
         let imagePath = job.savedImagePaths[imageIndex]
         let imageURL = projectRoot.appendingPathComponent(imagePath)
@@ -1029,20 +1011,16 @@ class AppState {
             return
         }
 
-        // Copy the source image to references so it persists independently
         let refResult = projectManager.saveReferenceImages([imageData], toFolder: projectRoot)
 
-        // Create job upfront so it appears in the activity list immediately
         let bgJob = GenerationJob(
-            model: .removeBackground,
+            modelID: bgModel.id,
             prompt: "",
             projectID: projectRoot.lastPathComponent,
             aspectRatio: job.aspectRatio,
             resolution: nil,
             imageCount: 1,
-            gptQuality: nil,
-            gptBackground: nil,
-            gptInputFidelity: nil
+            parameters: [:]
         )
         bgJob.referenceImagePaths = refResult.paths
         bgJob.startedAt = Date()
@@ -1057,13 +1035,11 @@ class AppState {
 
         Task {
             do {
-                // Downscale if the image exceeds the model's max input size
                 let downscaleInfo = Self.downscaleForBackgroundRemoval(imageData)
                 let apiInput = downscaleInfo?.downscaled ?? imageData
 
-                let resultData = try await provider.removeBackground(imageData: apiInput)
+                let resultData = try await provider.removeBackground(imageData: apiInput, model: bgModel)
 
-                // If we downscaled, extract mask and composite onto original full-res image
                 let finalData: Data
                 if let info = downscaleInfo,
                    let composited = Self.extractAndApplyMask(
@@ -1079,13 +1055,11 @@ class AppState {
 
                 let meta = ImageMeta(
                     prompt: bgJob.prompt,
-                    model: .removeBackground,
+                    modelID: bgModel.id,
                     aspectRatio: bgJob.aspectRatio,
                     resolution: nil,
                     imageCount: 1,
-                    gptQuality: nil,
-                    gptBackground: nil,
-                    gptInputFidelity: nil,
+                    parameters: [:],
                     referenceHashes: refResult.hashes,
                     createdAt: Date()
                 )

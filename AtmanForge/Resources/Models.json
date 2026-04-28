@@ -1,0 +1,157 @@
+{
+  "models": [
+    {
+      "id": "gemini-2.5",
+      "displayName": "Gemini 2.5",
+      "kind": "generation",
+      "replicateModelID": "google/nano-banana",
+      "aspectRatios": ["9:16", "2:3", "3:4", "4:5", "1:1", "5:4", "4:3", "3:2", "16:9", "21:9"],
+      "resolutions": [],
+      "maxImages": 4,
+      "nativeBatchKey": null,
+      "maxReferenceImages": 6,
+      "referenceKey": { "name": "image_input", "kind": "array" },
+      "staticInputs": {},
+      "parameters": []
+    },
+    {
+      "id": "gemini-3.0",
+      "displayName": "Gemini 3.0 Pro",
+      "kind": "generation",
+      "replicateModelID": "google/nano-banana-pro",
+      "aspectRatios": ["9:16", "2:3", "3:4", "4:5", "1:1", "5:4", "4:3", "3:2", "16:9", "21:9"],
+      "resolutions": ["1K", "2K", "4K"],
+      "maxImages": 4,
+      "nativeBatchKey": null,
+      "maxReferenceImages": 14,
+      "referenceKey": { "name": "image_input", "kind": "array" },
+      "staticInputs": {},
+      "parameters": []
+    },
+    {
+      "id": "gemini-3.1-flash",
+      "displayName": "Gemini 3.1 Flash",
+      "kind": "generation",
+      "replicateModelID": "google/nano-banana-2",
+      "aspectRatios": ["1:8", "1:4", "9:16", "2:3", "3:4", "4:5", "1:1", "5:4", "4:3", "3:2", "16:9", "21:9", "4:1", "8:1"],
+      "resolutions": ["1K", "2K", "4K"],
+      "maxImages": 4,
+      "nativeBatchKey": null,
+      "maxReferenceImages": 14,
+      "referenceKey": { "name": "image_input", "kind": "array" },
+      "staticInputs": { "output_format": "png" },
+      "parameters": []
+    },
+    {
+      "id": "gpt-image-1.5",
+      "displayName": "GPT Image 1.5",
+      "kind": "generation",
+      "replicateModelID": "openai/gpt-image-1.5",
+      "aspectRatios": ["2:3", "1:1", "3:2"],
+      "resolutions": [],
+      "maxImages": 10,
+      "nativeBatchKey": "number_of_images",
+      "maxReferenceImages": 10,
+      "referenceKey": { "name": "input_images", "kind": "array" },
+      "staticInputs": {},
+      "parameters": [
+        { "key": "quality", "label": "Quality", "control": "picker",
+          "options": ["high", "medium", "low"], "default": "medium" },
+        { "key": "background", "label": "Background", "control": "picker",
+          "options": ["auto", "transparent", "opaque"], "default": "auto" },
+        { "key": "input_fidelity", "label": "Input Fidelity", "control": "picker",
+          "options": ["high", "low"], "default": "high" }
+      ]
+    },
+    {
+      "id": "qwen-image",
+      "displayName": "Qwen Image",
+      "kind": "generation",
+      "replicateModelID": "qwen/qwen-image",
+      "aspectRatios": ["9:16", "2:3", "3:4", "4:5", "1:1", "5:4", "4:3", "3:2", "16:9", "21:9"],
+      "resolutions": [],
+      "maxImages": 4,
+      "nativeBatchKey": null,
+      "maxReferenceImages": 1,
+      "referenceKey": { "name": "image", "kind": "single" },
+      "staticInputs": { "output_format": "png", "disable_safety_checker": true },
+      "parameters": []
+    },
+    {
+      "id": "qwen-image-2512",
+      "displayName": "Qwen Image 2512",
+      "kind": "generation",
+      "replicateModelID": "qwen/qwen-image-2512",
+      "aspectRatios": ["9:16", "2:3", "3:4", "4:5", "1:1", "5:4", "4:3", "3:2", "16:9", "21:9"],
+      "resolutions": [],
+      "maxImages": 4,
+      "nativeBatchKey": null,
+      "maxReferenceImages": 1,
+      "referenceKey": { "name": "image", "kind": "single" },
+      "staticInputs": { "output_format": "png", "disable_safety_checker": true },
+      "parameters": []
+    },
+    {
+      "id": "z-image-turbo",
+      "displayName": "Z-Image Turbo",
+      "kind": "generation",
+      "replicateModelID": "prunaai/z-image-turbo",
+      "aspectRatios": ["9:16", "2:3", "3:4", "4:5", "1:1", "5:4", "4:3", "3:2", "16:9", "21:9"],
+      "resolutions": [],
+      "maxImages": 4,
+      "nativeBatchKey": null,
+      "maxReferenceImages": 1,
+      "referenceKey": { "name": "image", "kind": "single" },
+      "staticInputs": { "output_format": "png" },
+      "parameters": []
+    },
+    {
+      "id": "flux-2-pro",
+      "displayName": "FLUX.2 Pro",
+      "kind": "generation",
+      "replicateModelID": "black-forest-labs/flux-2-pro",
+      "aspectRatios": ["9:16", "2:3", "3:4", "4:5", "1:1", "5:4", "4:3", "3:2", "16:9", "21:9"],
+      "resolutions": [],
+      "maxImages": 4,
+      "nativeBatchKey": null,
+      "maxReferenceImages": 1,
+      "referenceKey": { "name": "image", "kind": "single" },
+      "staticInputs": { "output_format": "png", "safety_tolerance": 5 },
+      "parameters": [
+        { "key": "prompt_strength", "label": "Prompt Strength", "control": "slider",
+          "min": 0, "max": 1, "step": 0.05, "default": 0.5 }
+      ]
+    },
+    {
+      "id": "flux-2-max",
+      "displayName": "FLUX.2 Max",
+      "kind": "generation",
+      "replicateModelID": "black-forest-labs/flux-2-max",
+      "aspectRatios": ["9:16", "2:3", "3:4", "4:5", "1:1", "5:4", "4:3", "3:2", "16:9", "21:9"],
+      "resolutions": [],
+      "maxImages": 4,
+      "nativeBatchKey": null,
+      "maxReferenceImages": 1,
+      "referenceKey": { "name": "image", "kind": "single" },
+      "staticInputs": { "output_format": "png", "safety_tolerance": 5 },
+      "parameters": [
+        { "key": "prompt_strength", "label": "Prompt Strength", "control": "slider",
+          "min": 0, "max": 1, "step": 0.05, "default": 0.5 }
+      ]
+    },
+    {
+      "id": "remove-background",
+      "displayName": "Remove Background",
+      "kind": "background-removal",
+      "replicateModelID": "bria/remove-background",
+      "aspectRatios": ["1:1"],
+      "resolutions": [],
+      "maxImages": 1,
+      "nativeBatchKey": null,
+      "maxReferenceImages": 1,
+      "referenceKey": { "name": "image", "kind": "single" },
+      "staticInputs": { "content_moderation": false, "preserve_alpha": true },
+      "parameters": []
+    }
+  ]
+}

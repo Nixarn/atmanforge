@@ -87,18 +87,18 @@ struct SettingsView: View {
                 }
 
                 Section("Models") {
-                    ForEach(AIModel.generationModels, id: \.self) { model in
+                    ForEach(ModelRegistry.shared.generationModels, id: \.id) { model in
                         Toggle(model.displayName, isOn: Binding(
-                            get: { !appState.hiddenModels.contains(model.rawValue) },
+                            get: { !appState.hiddenModels.contains(model.id) },
                             set: { visible in
                                 if visible {
-                                    appState.hiddenModels.remove(model.rawValue)
+                                    appState.hiddenModels.remove(model.id)
                                 } else {
-                                    appState.hiddenModels.insert(model.rawValue)
-                                    if appState.selectedModel == model {
-                                        if let first = appState.visibleGenerationModels.first {
-                                            appState.selectedModel = first
-                                        }
+                                    appState.hiddenModels.insert(model.id)
+                                    if appState.selectedModelID == model.id,
+                                       let first = appState.visibleGenerationModels.first {
+                                        appState.selectedModelID = first.id
+                                        appState.onModelChanged()
                                     }
                                 }
                             }

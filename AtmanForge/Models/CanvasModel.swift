@@ -12,7 +12,7 @@ struct CanvasManifest: Codable {
     init(name: String, width: Int = 1024, height: Int = 1024) {
         self.name = name
         self.prompt = ""
-        self.model = AIModel.gemini25.rawValue
+        self.model = "gemini-2.5"
         self.width = width
         self.height = height
         self.history = []
@@ -54,170 +54,6 @@ struct Canvas: Identifiable {
     }
 }
 
-enum AIModelProvider: String, Codable {
-    case google
-    case openai
-    case qwen
-    case prunaai
-    case blackForest
-}
-
-enum AIModel: String, Codable {
-    case gemini25 = "gemini-2.5"
-    case gemini30 = "gemini-3.0"
-    case gemini31Flash = "gemini-3.1-flash"
-    case gptImage15 = "gpt-image-1.5"
-    case qwenImage = "qwen-image"
-    case qwenImage2512 = "qwen-image-2512"
-    case zImageTurbo = "z-image-turbo"
-    case flux2Pro = "flux-2-pro"
-    case flux2Max = "flux-2-max"
-    case removeBackground = "remove-background"
-
-    /// Models available for generation (excludes utility models)
-    static let generationModels: [AIModel] = [.gemini25, .gemini30, .gemini31Flash, .gptImage15, .qwenImage, .qwenImage2512, .zImageTurbo, .flux2Pro, .flux2Max]
-
-    var displayName: String {
-        switch self {
-        case .gemini25: return "Gemini 2.5"
-        case .gemini30: return "Gemini 3.0 Pro"
-        case .gemini31Flash: return "Gemini 3.1 Flash"
-        case .gptImage15: return "GPT Image 1.5"
-        case .qwenImage: return "Qwen Image"
-        case .qwenImage2512: return "Qwen Image 2512"
-        case .zImageTurbo: return "Z-Image Turbo"
-        case .flux2Pro: return "FLUX.2 Pro"
-        case .flux2Max: return "FLUX.2 Max"
-        case .removeBackground: return "Remove Background"
-        }
-    }
-
-    var provider: AIModelProvider {
-        switch self {
-        case .gemini25, .gemini30, .gemini31Flash: return .google
-        case .gptImage15: return .openai
-        case .qwenImage, .qwenImage2512: return .qwen
-        case .zImageTurbo: return .prunaai
-        case .flux2Pro: return .blackForest
-        case .flux2Max: return .blackForest
-        case .removeBackground: return .google
-        }
-    }
-
-    var replicateModelID: String {
-        switch self {
-        case .gemini25: return "google/nano-banana"
-        case .gemini30: return "google/nano-banana-pro"
-        case .gemini31Flash: return "google/nano-banana-2"
-        case .gptImage15: return "openai/gpt-image-1.5"
-        case .qwenImage: return "qwen/qwen-image"
-        case .qwenImage2512: return "qwen/qwen-image-2512"
-        case .zImageTurbo: return "prunaai/z-image-turbo"
-        case .flux2Pro: return "black-forest-labs/flux-2-pro"
-        case .flux2Max: return "black-forest-labs/flux-2-max"
-        case .removeBackground: return "bria/remove-background"
-        }
-    }
-
-    var supportsResolution: Bool {
-        switch self {
-        case .gemini30, .gemini31Flash: return true
-        case .gemini25, .gptImage15, .qwenImage, .qwenImage2512, .zImageTurbo, .flux2Pro, .flux2Max, .removeBackground: return false
-        }
-    }
-
-    var supportedResolutions: [ImageResolution] {
-        switch self {
-        case .gemini30: return [.r1k, .r2k, .r4k]
-        case .gemini31Flash: return [.r1k, .r2k, .r4k]
-        default: return ImageResolution.allCases
-        }
-    }
-
-    var maxImageCount: Int {
-        switch self {
-        case .gemini25, .gemini30, .gemini31Flash: return 4
-        case .gptImage15: return 10
-        case .qwenImage, .qwenImage2512, .zImageTurbo, .flux2Pro, .flux2Max: return 4
-        case .removeBackground: return 1
-        }
-    }
-
-    var supportsNativeImageCount: Bool {
-        switch self {
-        case .gptImage15: return true
-        case .gemini25, .gemini30, .gemini31Flash, .qwenImage, .qwenImage2512, .zImageTurbo, .flux2Pro, .flux2Max, .removeBackground: return false
-        }
-    }
-
-    var maxReferenceImages: Int {
-        switch self {
-        case .gemini25: return 6
-        case .gemini30: return 14
-        case .gemini31Flash: return 14
-        case .gptImage15: return 10
-        case .qwenImage, .qwenImage2512: return 1
-        case .zImageTurbo: return 1
-        case .flux2Pro: return 1
-        case .flux2Max: return 1
-        case .removeBackground: return 1
-        }
-    }
-
-    var supportedAspectRatios: [AspectRatio] {
-        switch self {
-        case .gemini25, .gemini30, .qwenImage, .qwenImage2512, .zImageTurbo, .flux2Pro, .flux2Max:
-            return [.r9_16, .r2_3, .r3_4, .r4_5, .r1_1, .r5_4, .r4_3, .r3_2, .r16_9, .r21_9]
-        case .gemini31Flash:
-            return [.r1_8, .r1_4, .r9_16, .r2_3, .r3_4, .r4_5, .r1_1, .r5_4, .r4_3, .r3_2, .r16_9, .r21_9, .r4_1, .r8_1]
-        case .gptImage15:
-            return [.r2_3, .r1_1, .r3_2]
-        case .removeBackground:
-            return [.r1_1]
-        }
-    }
-}
-
-enum GPTQuality: String, CaseIterable, Codable {
-    case high
-    case medium
-    case low
-
-    var displayName: String {
-        switch self {
-        case .high: return "High"
-        case .medium: return "Medium"
-        case .low: return "Low"
-        }
-    }
-}
-
-enum GPTBackground: String, CaseIterable, Codable {
-    case auto
-    case transparent
-    case opaque
-
-    var displayName: String {
-        switch self {
-        case .auto: return "Auto"
-        case .transparent: return "Transparent"
-        case .opaque: return "Opaque"
-        }
-    }
-}
-
-enum GPTInputFidelity: String, CaseIterable, Codable {
-    case high
-    case low
-
-    var displayName: String {
-        switch self {
-        case .high: return "High"
-        case .low: return "Low"
-        }
-    }
-}
-
 enum ImageResolution: String, CaseIterable, Codable {
     case r512 = "512"
     case r1k = "1K"
@@ -238,7 +74,6 @@ enum ImageResolution: String, CaseIterable, Codable {
     func dimensions(for aspect: AspectRatio) -> (width: Int, height: Int) {
         let base = baseSize
         let (w, h) = aspect.ratio
-        // Scale so the larger dimension equals baseSize
         if w >= h {
             let width = base
             let height = Int(Double(base) * Double(h) / Double(w))
@@ -310,4 +145,3 @@ enum CanvasTool: String, CaseIterable {
         }
     }
 }
-
