@@ -199,9 +199,23 @@ struct AIGenerationPanel: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Prompt")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("Prompt")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if !appState.prompt.isEmpty {
+                        Button {
+                            appState.prompt = ""
+                            appState.commitUndoCheckpoint()
+                        } label: {
+                            Text("Clear")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.accentColor)
+                    }
+                }
                 TextEditor(text: $appState.prompt)
                     .font(.body)
                     .frame(minHeight: 60, maxHeight: 120)
