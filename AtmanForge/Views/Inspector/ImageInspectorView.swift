@@ -622,7 +622,7 @@ struct ImageInspectorView: View {
                 .disabled(appState.isRemovingBackground || job.model?.kind == .backgroundRemoval)
 
                 Button {
-                    appState.loadSettings(from: job)
+                    appState.retryJob(job)
                 } label: {
                     Label("Retry", systemImage: "arrow.counterclockwise")
                         .frame(maxWidth: .infinity)
