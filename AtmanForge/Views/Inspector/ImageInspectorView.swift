@@ -641,6 +641,17 @@ struct ImageInspectorView: View {
 
                 #if os(macOS)
                 Button {
+                    guard imageIndex < job.savedImagePaths.count, let root = projectRoot else { return }
+                    let imageURL = root.appendingPathComponent(job.savedImagePaths[imageIndex])
+                    QuickLookController.shared.preview(url: imageURL)
+                } label: {
+                    Label("Preview", systemImage: "eye")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+
+                Button {
                     appState.exportSelectedImages()
                 } label: {
                     Label("Export", systemImage: "square.and.arrow.up")

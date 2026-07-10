@@ -368,6 +368,9 @@ struct ThumbnailHoverView: View {
         #else
         if let uiImage = ThumbnailCache.shared.image(for: url) {
             imageContent(Image(uiImage: uiImage))
+                .onTapGesture(count: 2) {
+                    onPreview?()
+                }
                 .contextMenu { contextMenuItems }
                 .onDrag {
                     guard let fileURL = savedImageURL else { return NSItemProvider() }
@@ -460,7 +463,8 @@ struct ThumbnailHoverView: View {
             width: width,
             height: height,
             isSelected: isSelected,
-            onTap: onTap
+            onTap: onTap,
+            onDoubleTap: onPreview
         )
         .frame(width: width, height: height)
         .onHover { isHovered in
@@ -491,17 +495,20 @@ struct NativeHoverZoomView: NSViewRepresentable {
     let height: CGFloat
     var isSelected: Bool
     var onTap: ((_ commandDown: Bool, _ shiftDown: Bool) -> Void)?
+    var onDoubleTap: (() -> Void)?
 
     func makeNSView(context: Context) -> HoverZoomNSView {
         let view = HoverZoomNSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
         view.image = nsImage
         view.cornerRadius = 4
         view.onTap = onTap
+        view.onDoubleTap = onDoubleTap
         return view
     }
 
     func updateNSView(_ nsView: HoverZoomNSView, context: Context) {
         nsView.onTap = onTap
+        nsView.onDoubleTap = onDoubleTap
         nsView.updateSelection(isSelected)
     }
 }
@@ -512,6 +519,7 @@ class HoverZoomNSView: NSView {
     }
     var cornerRadius: CGFloat = 4
     var onTap: ((_ commandDown: Bool, _ shiftDown: Bool) -> Void)?
+    var onDoubleTap: (() -> Void)?
 
     private let imageLayer = CALayer()
     private let borderLayer = CAShapeLayer()
@@ -583,9 +591,13 @@ class HoverZoomNSView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        let cmd = event.modifierFlags.contains(.command)
-        let shift = event.modifierFlags.contains(.shift)
-        onTap?(cmd, shift)
+        if event.clickCount >= 2 {
+            onDoubleTap?()
+        } else {
+            let cmd = event.modifierFlags.contains(.command)
+            let shift = event.modifierFlags.contains(.shift)
+            onTap?(cmd, shift)
+        }
     }
 }
 #endif

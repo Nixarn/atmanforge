@@ -535,6 +535,13 @@ struct LibraryView: View {
                 .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
         )
         .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            if let savedImageURL {
+                #if os(macOS)
+                QuickLookController.shared.preview(url: savedImageURL)
+                #endif
+            }
+        }
         .onTapGesture {
             #if os(macOS)
             let flags = NSEvent.modifierFlags
