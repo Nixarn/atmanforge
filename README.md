@@ -110,8 +110,12 @@ copy.
 | `referenceKey` | `{ "name": …, "kind": "single" \| "array" }` | Which input key reference images go into |
 | `staticInputs` | object | Literal values always sent with the request, e.g. `{ "output_format": "png" }` |
 | `parameters` | array | User-facing controls, see below |
+| `visibleByDefault` | bool | Omit (or `true`) to show the model in a fresh install's picker. `false` starts it hidden, still switchable under **Settings → Models** |
 
-All fields except `nativeBatchKey` and `referenceKey` must be present — arrays and objects may be empty, but not omitted.
+All fields except `nativeBatchKey`, `referenceKey`, and `visibleByDefault` must be present — arrays and objects may be empty, but not omitted.
+
+Out of the box the picker shows Gemini 3.0 Pro, Gemini 3.1 Flash, and GPT Image 2; the rest ship hidden. Once you
+change any toggle in **Settings → Models**, your choice sticks and these defaults no longer apply.
 
 ### Parameter controls
 

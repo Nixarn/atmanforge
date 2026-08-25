@@ -88,6 +88,13 @@ struct ModelDefinition: Codable, Identifiable, Hashable {
     let referenceKey: ReferenceKeySpec?
     let staticInputs: [String: ParameterValue]
     let parameters: [ParameterSpec]
+    /// Omit to have the model shown in a fresh install's picker. Optional so
+    /// that existing custom Models.json files keep decoding.
+    let visibleByDefault: Bool?
+
+    /// Whether a fresh install shows this model before the user touches
+    /// Settings -> Models. Hidden models are still selectable by un-hiding them.
+    var isVisibleByDefault: Bool { visibleByDefault ?? true }
 
     var supportsResolution: Bool { !resolutions.isEmpty }
     var supportsNativeImageCount: Bool { nativeBatchKey != nil }
@@ -120,6 +127,11 @@ final class ModelRegistry {
 
     var generationModels: [ModelDefinition] {
         models.filter { $0.kind == .generation }
+    }
+
+    /// Model ids a fresh install starts with hidden.
+    var defaultHiddenModelIDs: Set<String> {
+        Set(generationModels.filter { !$0.isVisibleByDefault }.map(\.id))
     }
 
     var backgroundRemovalModel: ModelDefinition? {

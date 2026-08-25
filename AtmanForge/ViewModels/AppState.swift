@@ -148,6 +148,20 @@ class AppState {
 
     init() {
         hasProjectsRoot = ProjectManager.shared.projectsRootURL != nil
+
+        // Until the user touches Settings -> Models, follow the registry's
+        // defaults. Setting this in init doesn't fire didSet, so nothing is
+        // written to UserDefaults; the first manual toggle writes the key and
+        // from then on the user's choice wins.
+        if UserDefaults.standard.object(forKey: "hiddenModels") == nil {
+            hiddenModels = ModelRegistry.shared.defaultHiddenModelIDs
+        }
+        if !visibleGenerationModels.contains(where: { $0.id == selectedModelID }),
+           let first = visibleGenerationModels.first {
+            selectedModelID = first.id
+        }
+        onModelChanged()
+
         lastCommittedSnapshot = currentSnapshot()
         refreshAPIKeyStatus()
     }
