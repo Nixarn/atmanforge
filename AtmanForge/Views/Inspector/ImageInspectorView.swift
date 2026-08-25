@@ -34,64 +34,67 @@ struct ComparisonOverlayView<MenuContent: View>: View {
     @State private var genImage: NSImage?
 
     var body: some View {
-        GeometryReader { geo in
-            let dividerX = geo.size.width * position
+        AspectPreviewBox(imageURL: generatedURL) {
+            GeometryReader { geo in
+                let dividerX = geo.size.width * position
 
-            if let ref = refImage, let gen = genImage {
-                ZStack(alignment: .leading) {
-                    Image(nsImage: ref)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .clipped()
-                        .clipShape(HorizontalSliceShape(side: .left, dividerX: dividerX))
+                if let ref = refImage, let gen = genImage {
+                    ZStack(alignment: .leading) {
+                        // The reference rarely shares the generation's aspect ratio.
+                        // Fit it and let the checkerboard show through the margins
+                        // rather than cropping it to the generation's shape.
+                        Image(nsImage: ref)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .clipShape(HorizontalSliceShape(side: .left, dividerX: dividerX))
 
-                    Image(nsImage: gen)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .clipped()
-                        .clipShape(HorizontalSliceShape(side: .right, dividerX: dividerX))
+                        // The box is built from this image's ratio, so .fill covers it
+                        // exactly — no crop, and no hairline gap from rounding.
+                        Image(nsImage: gen)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .clipShape(HorizontalSliceShape(side: .right, dividerX: dividerX))
 
-                    // Divider line + handle
-                    ZStack {
-                        Rectangle()
-                            .fill(Color.white)
-                            .frame(width: 2, height: geo.size.height)
-                            .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0)
+                        // Divider line + handle
+                        ZStack {
+                            Rectangle()
+                                .fill(Color.white)
+                                .frame(width: 2, height: geo.size.height)
+                                .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0)
 
-                        Circle()
-                            .fill(Color.white)
-                            .frame(width: 32, height: 32)
-                            .overlay {
-                                Circle()
-                                    .strokeBorder(Color.black.opacity(0.15), lineWidth: 1)
-                            }
-                            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 0)
-                            .overlay {
-                                Image(systemName: "arrow.left.and.right")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(Color.gray)
-                            }
-                    }
-                    .position(x: dividerX, y: geo.size.height / 2)
-                    .allowsHitTesting(false)
-                }
-                .drawingGroup()
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            position = min(max(value.location.x / geo.size.width, 0), 1)
+                            Circle()
+                                .fill(Color.white)
+                                .frame(width: 32, height: 32)
+                                .overlay {
+                                    Circle()
+                                        .strokeBorder(Color.black.opacity(0.15), lineWidth: 1)
+                                }
+                                .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 0)
+                                .overlay {
+                                    Image(systemName: "arrow.left.and.right")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(Color.gray)
+                                }
                         }
-                )
-                .contextMenu {
-                    contextMenuActions()
+                        .position(x: dividerX, y: geo.size.height / 2)
+                        .allowsHitTesting(false)
+                    }
+                    .drawingGroup()
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                position = min(max(value.location.x / geo.size.width, 0), 1)
+                            }
+                    )
+                    .contextMenu {
+                        contextMenuActions()
+                    }
                 }
             }
         }
-        .aspectRatio(contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
         .onAppear {
             position = initialPosition
             loadImages()
@@ -158,11 +161,11 @@ struct ImageInspectorView: View {
                             Spacer()
                             actionButtons(job)
                         }
-                        .padding(16)
+                        .padding(ImagePreview.inspectorPadding)
                     }
                     .scrollIndicators(.never)
                 }
-                .frame(width: 320)
+                .frame(width: ImagePreview.inspectorWidth)
                 #if os(macOS)
                 .background(Color(nsColor: .windowBackgroundColor))
                 #else
@@ -196,11 +199,11 @@ struct ImageInspectorView: View {
                     multiSelectionSummary
                     multiSelectionActions
                 }
-                .padding(16)
+                .padding(ImagePreview.inspectorPadding)
             }
             .scrollIndicators(.never)
         }
-        .frame(width: 320)
+        .frame(width: ImagePreview.inspectorWidth)
         #if os(macOS)
         .background(Color(nsColor: .windowBackgroundColor))
         #else
@@ -418,66 +421,38 @@ struct ImageInspectorView: View {
             let imageURL = root.appendingPathComponent(job.savedImagePaths[imageIndex])
             #if os(macOS)
             if let nsImage = NSImage(contentsOf: imageURL) {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: .infinity)
-                    .background(checkerboard)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .onDrag {
-                        NSItemProvider(contentsOf: imageURL) ?? NSItemProvider()
-                    }
-                    .contextMenu {
-                        imageContextMenu(imageURL: imageURL)
-                    }
-                    .onHover { isHovered in
-                        updateHoveredPreviewURL(isHovered: isHovered, previewURL: imageURL)
-                    }
+                AspectPreviewBox(imageURL: imageURL) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                }
+                .onDrag {
+                    NSItemProvider(contentsOf: imageURL) ?? NSItemProvider()
+                }
+                .contextMenu {
+                    imageContextMenu(imageURL: imageURL)
+                }
+                .onHover { isHovered in
+                    updateHoveredPreviewURL(isHovered: isHovered, previewURL: imageURL)
+                }
             }
             #else
             if let data = try? Data(contentsOf: imageURL), let uiImage = UIImage(data: data) {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: .infinity)
-                    .background(checkerboard)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .onDrag {
-                        NSItemProvider(contentsOf: imageURL) ?? NSItemProvider()
-                    }
-                    .contextMenu {
-                        imageContextMenu(imageURL: imageURL)
-                    }
+                AspectPreviewBox(imageURL: imageURL) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                }
+                .onDrag {
+                    NSItemProvider(contentsOf: imageURL) ?? NSItemProvider()
+                }
+                .contextMenu {
+                    imageContextMenu(imageURL: imageURL)
+                }
             }
             #endif
         }
     }
-
-    private var checkerboard: some View {
-        Image(decorative: Self.checkerboardTile, scale: 1.0)
-            .resizable(resizingMode: .tile)
-    }
-
-    private static let checkerboardTile: CGImage = {
-        let sq = 8
-        let size = sq * 2
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let ctx = CGContext(
-            data: nil, width: size, height: size,
-            bitsPerComponent: 8, bytesPerRow: 0,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        )!
-        // Light squares
-        ctx.setFillColor(CGColor(gray: 0.9, alpha: 1))
-        ctx.fill(CGRect(x: 0, y: 0, width: sq, height: sq))
-        ctx.fill(CGRect(x: sq, y: sq, width: sq, height: sq))
-        // Dark squares
-        ctx.setFillColor(CGColor(gray: 0.75, alpha: 1))
-        ctx.fill(CGRect(x: sq, y: 0, width: sq, height: sq))
-        ctx.fill(CGRect(x: 0, y: sq, width: sq, height: sq))
-        return ctx.makeImage()!
-    }()
 
     @ViewBuilder
     private func imageContextMenu(imageURL: URL) -> some View {
@@ -513,7 +488,7 @@ struct ImageInspectorView: View {
 
         Button {
             appState.prompt = ""
-            appState.referenceImages.removeAll()
+            appState.clearReferenceImages()
             if let data = try? Data(contentsOf: imageURL) {
                 appState.addReferenceImages([data])
             }
@@ -595,7 +570,7 @@ struct ImageInspectorView: View {
                     let imageURL = root.appendingPathComponent(job.savedImagePaths[imageIndex])
                     guard let data = try? Data(contentsOf: imageURL) else { return }
                     appState.prompt = ""
-                    appState.referenceImages.removeAll()
+                    appState.clearReferenceImages()
                     appState.addReferenceImages([data])
                     appState.commitUndoCheckpoint()
                 } label: {
