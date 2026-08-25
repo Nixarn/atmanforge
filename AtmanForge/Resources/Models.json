@@ -79,7 +79,7 @@
         { "key": "quality", "label": "Quality", "control": "picker",
           "options": ["auto", "high", "medium", "low"], "default": "auto" },
         { "key": "background", "label": "Background", "control": "picker",
-          "options": ["auto", "opaque"], "default": "auto" }
+          "options": ["auto", "transparent", "opaque"], "default": "auto" }
       ]
     },
     {
