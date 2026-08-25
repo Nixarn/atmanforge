@@ -660,7 +660,7 @@ struct LibraryView: View {
 
                 Button {
                     appState.prompt = ""
-                    appState.referenceImages.removeAll()
+                    appState.clearReferenceImages()
                     if let data = try? Data(contentsOf: fileURL) {
                         appState.addReferenceImages([data])
                     }

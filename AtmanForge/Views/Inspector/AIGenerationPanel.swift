@@ -91,9 +91,9 @@ struct AIGenerationPanel: View {
                         }
                     } else {
                         LazyVGrid(columns: Array(repeating: GridItem(.fixed(72), spacing: 8), count: 3), spacing: 8) {
-                            ForEach(Array(appState.referenceImages.enumerated()), id: \.offset) { index, imageData in
+                            ForEach(Array(appState.referenceImages.enumerated()), id: \.element.id) { index, reference in
                                 ZStack(alignment: .topTrailing) {
-                                    ReferenceImageThumbnail(imageData: imageData)
+                                    ReferenceImageThumbnail(imageData: reference.data)
                                         .aspectRatio(1, contentMode: .fill)
                                         .frame(width: 72, height: 72)
                                         .clipped()
@@ -164,6 +164,7 @@ struct AIGenerationPanel: View {
                     }
                     .disabled(appState.referenceImages.count >= maxRefImages)
                     .onChange(of: selectedPhotos) { _, newItems in
+                        let epoch = appState.referenceImagesEpoch
                         Task {
                             var newImages: [Data] = []
                             for item in newItems {
@@ -171,7 +172,7 @@ struct AIGenerationPanel: View {
                                     newImages.append(data)
                                 }
                             }
-                            appState.addReferenceImages(newImages)
+                            appState.addReferenceImages(newImages, epoch: epoch)
                             selectedPhotos = []
                         }
                     }
@@ -182,11 +183,14 @@ struct AIGenerationPanel: View {
 
                     if !appState.referenceImages.isEmpty {
                         Button {
-                            appState.referenceImages.removeAll()
+                            appState.clearReferenceImages()
                             appState.commitUndoCheckpoint()
                         } label: {
                             Text("Clear")
                                 .font(.caption)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(Color.accentColor)
@@ -322,7 +326,7 @@ struct AIGenerationPanel: View {
             if let index = sketchingReferenceIndex,
                appState.referenceImages.indices.contains(index) {
                 SketchEditorView(
-                    imageData: appState.referenceImages[index],
+                    imageData: appState.referenceImages[index].data,
                     onSave: { newData in
                         appState.replaceReferenceImage(at: index, with: newData)
                         sketchingReferenceIndex = nil
@@ -483,6 +487,11 @@ struct AIGenerationPanel: View {
         let remaining = maxRefImages - appState.referenceImages.count
         guard remaining > 0 else { return false }
 
+        // These loads finish on their own schedule. Stamp the current epoch so a
+        // Clear pressed while they're in flight discards them instead of having
+        // them reappear in the emptied list.
+        let epoch = appState.referenceImagesEpoch
+
         let providersToProcess = Array(providers.prefix(remaining))
         for provider in providersToProcess {
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
@@ -491,14 +500,14 @@ struct AIGenerationPanel: View {
                           let url = URL(dataRepresentation: data, relativeTo: nil),
                           let imageData = try? Data(contentsOf: url) else { return }
                     DispatchQueue.main.async {
-                        appState.addReferenceImages([imageData])
+                        appState.addReferenceImages([imageData], epoch: epoch)
                     }
                 }
             } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
                 provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
                     guard let data else { return }
                     DispatchQueue.main.async {
-                        appState.addReferenceImages([data])
+                        appState.addReferenceImages([data], epoch: epoch)
                     }
                 }
             }

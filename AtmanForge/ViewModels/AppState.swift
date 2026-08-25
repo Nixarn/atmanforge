@@ -24,13 +24,25 @@ enum LibraryViewMode: String, CaseIterable {
     case grid, list
 }
 
+/// A reference image plus a stable identity. The grid used to key thumbnails by
+/// array index, which made removing one animate as though the *last* had gone.
+struct ReferenceImage: Identifiable, Equatable {
+    let id: UUID
+    let data: Data
+
+    init(data: Data) {
+        self.id = UUID()
+        self.data = data
+    }
+}
+
 struct GenerationParamsSnapshot: Equatable {
     let prompt: String
     let selectedModelID: String
     let selectedResolution: ImageResolution
     let selectedAspectRatio: AspectRatio
     let imageCount: Int
-    let referenceImages: [Data]
+    let referenceImages: [ReferenceImage]
     let parameterValues: [String: ParameterValue]
 }
 
@@ -111,7 +123,7 @@ class AppState {
     var selectedResolution: ImageResolution = .r2k
     var selectedAspectRatio: AspectRatio = .r1_1
     var imageCount: Int = 1
-    var referenceImages: [Data] = []
+    var referenceImages: [ReferenceImage] = []
     var parameterValues: [String: ParameterValue] = [:]
 
     // MARK: - Undo/Redo
@@ -243,12 +255,28 @@ class AppState {
         isRestoringSnapshot = false
     }
 
-    func addReferenceImages(_ images: [Data]) {
+    /// Incremented whenever the reference list is emptied. Drops load their
+    /// images asynchronously, so a load that started before a clear must not
+    /// repopulate the list after it.
+    private(set) var referenceImagesEpoch = 0
+
+    /// Empties the reference list and invalidates any drop still in flight.
+    /// Callers that want this to be undoable follow it with `commitUndoCheckpoint()`.
+    func clearReferenceImages() {
+        referenceImages.removeAll()
+        referenceImagesEpoch &+= 1
+    }
+
+    /// - Parameter epoch: the value of `referenceImagesEpoch` when the work that
+    ///   produced `images` began. Pass it from anything asynchronous; if the list
+    ///   was cleared in the meantime the images are stale and get dropped.
+    func addReferenceImages(_ images: [Data], epoch: Int? = nil) {
+        if let epoch, epoch != referenceImagesEpoch { return }
         let remaining = (selectedModel?.maxReferenceImages ?? 0) - referenceImages.count
         guard remaining > 0 else { return }
         for imageData in images.prefix(remaining) {
             if let normalized = Self.normalizeImageData(imageData) {
-                referenceImages.append(normalized)
+                referenceImages.append(ReferenceImage(data: normalized))
             }
         }
         commitUndoCheckpoint()
@@ -262,7 +290,7 @@ class AppState {
 
     func replaceReferenceImage(at index: Int, with data: Data) {
         guard referenceImages.indices.contains(index) else { return }
-        referenceImages[index] = data
+        referenceImages[index] = ReferenceImage(data: data)
         commitUndoCheckpoint()
     }
 
@@ -664,11 +692,11 @@ class AppState {
             parameterValues[key] = value
         }
         if let root = projectManager.projectsRootURL, !job.referenceImagePaths.isEmpty {
-            referenceImages.removeAll()
+            clearReferenceImages()
             for path in job.referenceImagePaths {
                 let url = root.appendingPathComponent(path)
                 if let data = try? Data(contentsOf: url) {
-                    referenceImages.append(data)
+                    referenceImages.append(ReferenceImage(data: data))
                 }
             }
         }
@@ -825,7 +853,7 @@ class AppState {
             aspectRatio: selectedAspectRatio,
             resolution: model.supportsResolution ? selectedResolution : nil,
             imageCount: imageCount,
-            referenceImages: referenceImages,
+            referenceImages: referenceImages.map(\.data),
             parameters: requestParams
         )
     }
