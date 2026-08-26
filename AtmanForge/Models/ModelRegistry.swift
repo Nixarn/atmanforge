@@ -91,6 +91,13 @@ struct ModelDefinition: Codable, Identifiable, Hashable {
     /// Omit to have the model shown in a fresh install's picker. Optional so
     /// that existing custom Models.json files keep decoding.
     let visibleByDefault: Bool?
+    /// Provider key carrying the image size for models that take one literal
+    /// value ("1536x1024") rather than separate ratio and resolution keys.
+    /// `openai/gpt-image-2` overloads its own `aspect_ratio` this way.
+    let sizeKey: String?
+    /// Aspect ratio -> resolution -> the literal value to send for `sizeKey`.
+    /// Sparse on purpose: gpt-image-2 offers 4K at 16:9 but not at 1:1.
+    let sizeMatrix: [String: [String: String]]?
 
     /// Whether a fresh install shows this model before the user touches
     /// Settings -> Models. Hidden models are still selectable by un-hiding them.
@@ -98,6 +105,44 @@ struct ModelDefinition: Codable, Identifiable, Hashable {
 
     var supportsResolution: Bool { !resolutions.isEmpty }
     var supportsNativeImageCount: Bool { nativeBatchKey != nil }
+
+    /// Resolutions offered for `ratio`. Matrix-backed models vary by ratio;
+    /// every other model offers the same list throughout.
+    func resolutions(for ratio: AspectRatio) -> [ImageResolution] {
+        guard let sizeMatrix else { return resolutions }
+        guard let row = sizeMatrix[ratio.rawValue] else { return [] }
+        return resolutions.filter { row[$0.rawValue] != nil }
+    }
+
+    /// The literal value to send for `sizeKey`, or nil when this model has no
+    /// matrix or does not offer that combination.
+    func sizeValue(for ratio: AspectRatio, resolution: ImageResolution?) -> String? {
+        guard let sizeMatrix, let resolution else { return nil }
+        return sizeMatrix[ratio.rawValue]?[resolution.rawValue]
+    }
+
+    /// Concrete pixels for a matrix-backed combination, parsed from "1536x1024".
+    func dimensions(for ratio: AspectRatio, resolution: ImageResolution) -> (width: Int, height: Int)? {
+        guard let size = sizeValue(for: ratio, resolution: resolution) else { return nil }
+        return ModelDefinition.parseSize(size)
+    }
+
+    /// A tier name alone is ambiguous once literal sizes are in play — "1K" is
+    /// 1536×1024 at 3:2 but 1024×1024 at 1:1 — so spell the pixels out.
+    func resolutionLabel(for ratio: AspectRatio, resolution: ImageResolution) -> String {
+        guard let dims = dimensions(for: ratio, resolution: resolution) else {
+            return resolution.displayName
+        }
+        return "\(resolution.displayName) (\(dims.width)×\(dims.height))"
+    }
+
+    static func parseSize(_ size: String) -> (width: Int, height: Int)? {
+        let parts = size.split(separator: "x")
+        guard parts.count == 2, let w = Int(parts[0]), let h = Int(parts[1]), w > 0, h > 0 else {
+            return nil
+        }
+        return (w, h)
+    }
 
     static func == (lhs: ModelDefinition, rhs: ModelDefinition) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
@@ -277,6 +322,7 @@ final class ModelRegistry {
             if m.maxReferenceImages < 0 {
                 throw RegistryError.validation("\(m.id): \"maxReferenceImages\" must be ≥ 0")
             }
+            try validateSizeMatrix(m)
             var paramKeys = Set<String>()
             for spec in m.parameters {
                 if !paramKeys.insert(spec.key).inserted {
@@ -284,6 +330,50 @@ final class ModelRegistry {
                 }
                 try validate(spec, modelID: m.id)
             }
+        }
+    }
+
+    /// A matrix-backed model has to cover every ratio it advertises, or the
+    /// picker offers combinations the provider will reject.
+    private static func validateSizeMatrix(_ m: ModelDefinition) throws {
+        guard m.sizeKey != nil || m.sizeMatrix != nil else { return }
+        guard let sizeKey = m.sizeKey, !sizeKey.isEmpty else {
+            throw RegistryError.validation("\(m.id): \"sizeMatrix\" requires a non-empty \"sizeKey\"")
+        }
+        guard let matrix = m.sizeMatrix else {
+            throw RegistryError.validation("\(m.id): \"sizeKey\" requires a \"sizeMatrix\"")
+        }
+        if m.resolutions.isEmpty {
+            throw RegistryError.validation("\(m.id): \"sizeMatrix\" requires a non-empty \"resolutions\"")
+        }
+        for (ratioKey, row) in matrix {
+            guard let ratio = AspectRatio(rawValue: ratioKey) else {
+                throw RegistryError.validation("\(m.id): sizeMatrix has unknown aspect ratio \"\(ratioKey)\"")
+            }
+            guard m.aspectRatios.contains(ratio) else {
+                throw RegistryError.validation(
+                    "\(m.id): sizeMatrix lists \"\(ratioKey)\", which is not in \"aspectRatios\"")
+            }
+            if row.isEmpty {
+                throw RegistryError.validation("\(m.id): sizeMatrix entry \"\(ratioKey)\" is empty")
+            }
+            for (resKey, size) in row {
+                guard let res = ImageResolution(rawValue: resKey) else {
+                    throw RegistryError.validation(
+                        "\(m.id): sizeMatrix[\(ratioKey)] has unknown resolution \"\(resKey)\"")
+                }
+                guard m.resolutions.contains(res) else {
+                    throw RegistryError.validation(
+                        "\(m.id): sizeMatrix[\(ratioKey)] lists \"\(resKey)\", which is not in \"resolutions\"")
+                }
+                guard ModelDefinition.parseSize(size) != nil else {
+                    throw RegistryError.validation(
+                        "\(m.id): sizeMatrix[\(ratioKey)][\(resKey)] = \"\(size)\" is not WIDTHxHEIGHT")
+                }
+            }
+        }
+        for ratio in m.aspectRatios where matrix[ratio.rawValue] == nil {
+            throw RegistryError.validation("\(m.id): sizeMatrix has no entry for aspect ratio \"\(ratio.rawValue)\"")
         }
     }
 

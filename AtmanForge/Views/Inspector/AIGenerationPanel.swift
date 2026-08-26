@@ -229,19 +229,23 @@ struct AIGenerationPanel: View {
                 .fixedSize()
             }
 
-            if let model, model.supportsResolution {
-                HStack {
-                    Text("Resolution")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Picker("Resolution", selection: $appState.selectedResolution) {
-                        ForEach(model.resolutions, id: \.self) { res in
-                            Text(res.displayName).tag(res)
+            if let model {
+                let ratio = appState.selectedAspectRatio
+                let resolutions = model.resolutions(for: ratio)
+                if !resolutions.isEmpty {
+                    HStack {
+                        Text("Resolution")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Picker("Resolution", selection: $appState.selectedResolution) {
+                            ForEach(resolutions, id: \.self) { res in
+                                Text(model.resolutionLabel(for: ratio, resolution: res)).tag(res)
+                            }
                         }
+                        .labelsHidden()
+                        .fixedSize()
                     }
-                    .labelsHidden()
-                    .fixedSize()
                 }
             }
 
@@ -351,6 +355,7 @@ struct AIGenerationPanel: View {
             appState.commitUndoCheckpoint()
         }
         .onChange(of: appState.selectedAspectRatio) {
+            appState.onAspectRatioChanged()
             appState.commitUndoCheckpoint()
         }
         .onChange(of: appState.selectedResolution) {

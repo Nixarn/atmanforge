@@ -97,7 +97,9 @@ class GenerationJob: Identifiable {
 
     var settingsSummary: String {
         var parts: [String] = [aspectRatio.displayName]
-        if let res = resolution { parts.append(res.displayName) }
+        if let res = resolution {
+            parts.append(model?.resolutionLabel(for: aspectRatio, resolution: res) ?? res.displayName)
+        }
         if imageCount > 1 { parts.append("\(imageCount) images") }
         if let specs = model?.parameters {
             for spec in specs {

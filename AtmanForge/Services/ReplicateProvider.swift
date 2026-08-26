@@ -143,13 +143,20 @@ class ReplicateProvider: AIProvider {
     // MARK: - Input Building
 
     private func buildInput(for request: GenerationRequest) async throws -> [String: Any] {
-        var input: [String: Any] = [
-            "prompt": request.prompt,
-            "aspect_ratio": request.aspectRatio.rawValue,
-        ]
+        var input: [String: Any] = ["prompt": request.prompt]
 
-        if request.model.supportsResolution, let resolution = request.resolution {
-            input["resolution"] = resolution.rawValue
+        // Models with a size matrix fold the resolution into one literal value
+        // ("1536x1024") under a single key, so they never get a separate
+        // "resolution". Falling back to the bare ratio keeps a combination the
+        // matrix somehow misses from failing outright.
+        if let sizeKey = request.model.sizeKey {
+            input[sizeKey] = request.model.sizeValue(for: request.aspectRatio, resolution: request.resolution)
+                ?? request.aspectRatio.rawValue
+        } else {
+            input["aspect_ratio"] = request.aspectRatio.rawValue
+            if request.model.supportsResolution, let resolution = request.resolution {
+                input["resolution"] = resolution.rawValue
+            }
         }
 
         if !request.referenceImages.isEmpty, let refKey = request.model.referenceKey {

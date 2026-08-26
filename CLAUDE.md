@@ -38,6 +38,13 @@ guards. Some other call sites are guarded; the platform list is aspirational, no
   two Application Support subdirectories differ: keys live under `com.turbolynx.AtmanForge`, the model override under
   plain `AtmanForge`.
 
+- **Size matrix.** Most models take `aspect_ratio` plus an optional `resolution`. A model can instead declare `sizeKey`
+  + `sizeMatrix` (aspect ratio -> resolution -> literal value, e.g. `"16:9" -> "4K" -> "3840x2160"`) and the provider
+  sends that one string under `sizeKey`. `openai/gpt-image-2` needs this: its `aspect_ratio` enum accepts *either* a
+  ratio or explicit `WIDTHxHEIGHT`, and the sizes it offers are a sparse matrix — 4K exists at 16:9 and 9:16 but not at
+  1:1. Hence `ModelDefinition.resolutions(for:)`, which is per-aspect-ratio, and `AppState.onAspectRatioChanged()`,
+  which reclamps the resolution when the ratio changes.
+
 - **Batching:** models with a `nativeBatchKey` request N images in one prediction. Models without one get N separate
   predictions, created sequentially with a user-configurable throttle delay, then polled in parallel. Partial failures
   surface as a second, failed job next to the successful one.

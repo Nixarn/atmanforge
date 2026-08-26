@@ -207,14 +207,24 @@ class AppState {
         if !model.aspectRatios.contains(selectedAspectRatio) {
             selectedAspectRatio = model.aspectRatios.first ?? .r1_1
         }
-        if !model.resolutions.isEmpty,
-           !model.resolutions.contains(selectedResolution),
-           let lowest = model.resolutions.first {
-            selectedResolution = lowest
-        }
+        clampResolution(for: model)
         for spec in model.parameters where parameterValues[spec.key] == nil {
             parameterValues[spec.key] = spec.defaultValue
         }
+    }
+
+    /// A model's resolutions can vary by aspect ratio (see
+    /// `ModelDefinition.sizeMatrix`), so changing the ratio can strand the
+    /// current selection the same way changing the model can.
+    func onAspectRatioChanged() {
+        guard let model = selectedModel else { return }
+        clampResolution(for: model)
+    }
+
+    private func clampResolution(for model: ModelDefinition) {
+        let available = model.resolutions(for: selectedAspectRatio)
+        guard let lowest = available.first, !available.contains(selectedResolution) else { return }
+        selectedResolution = lowest
     }
 
     // MARK: - Undo/Redo
@@ -701,6 +711,7 @@ class AppState {
         if let res = job.resolution {
             selectedResolution = res
         }
+        onAspectRatioChanged()
         imageCount = job.imageCount
         for (key, value) in job.parameters {
             parameterValues[key] = value
