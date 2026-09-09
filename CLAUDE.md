@@ -45,6 +45,13 @@ guards. Some other call sites are guarded; the platform list is aspirational, no
   1:1. Hence `ModelDefinition.resolutions(for:)`, which is per-aspect-ratio, and `AppState.onAspectRatioChanged()`,
   which reclamps the resolution when the ratio changes.
 
+- **Cost estimates.** `ModelDefinition.cost` (`CostSpec`, optional) holds Replicate's listed USD price per output
+  image: a flat number, or `perImage` plus `byResolution` / `parameterKey` + `byParameterValue` tiers, and an
+  `approximate` flag for megapixel-billed models. `AppState.runGeneration` stores `unit × imageCount` on the job as
+  `estimatedCost` (persisted in `ActivityRecord`), then re-stores `unit × images actually saved` on completion and
+  clears it on failure. `showCostEstimates` in Settings hides it in both the panel and Activity. Prices were read
+  off replicate.com in September 2026 and will drift; they are estimates, not billing.
+
 - **Batching:** models with a `nativeBatchKey` request N images in one prediction. Models without one get N separate
   predictions, created sequentially with a user-configurable throttle delay, then polled in parallel. Partial failures
   surface as a second, failed job next to the successful one.

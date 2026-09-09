@@ -68,6 +68,14 @@ struct SettingsView: View {
                     Text("Delay between API calls when generating multiple images with models that don't support batch requests (Gemini).")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    Toggle("Show cost estimates", isOn: Binding(
+                        get: { appState.showCostEstimates },
+                        set: { appState.showCostEstimates = $0 }
+                    ))
+                    Text("Shows the estimated price of a generation next to the Generate button and in Activity, based on each model's listed Replicate price. Estimates only — check your Replicate billing for actual charges.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Thumbnails") {

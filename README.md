@@ -15,6 +15,7 @@ Generate stunning images with state-of-the-art AI models. Bring your own API key
 
 - **Multiple AI Models** — Gemini, GPT Image, Qwen, Z-Image, and FLUX.2. Switch between them instantly.
 - **Custom Models** — The model list is plain JSON. Add models or tweak parameters yourself, no rebuild required.
+- **Cost Estimates** — See what a generation will cost before you run it, and what each one cost afterwards. Can be turned off in Settings.
 - **Bring Your Own Keys** — Use your own API key, encrypted on-device and never sent anywhere but the provider.
 - **Reference Images** — Guide AI generation with reference images. Sketch directly on them.
 - **Background Removal** — One-click background removal powered by [bria/remove-background](https://replicate.com/bria/remove-background).
@@ -56,19 +57,26 @@ Select your target device and press `⌘R` to build and run.
 
 AtmanForge currently uses [Replicate](https://replicate.com) as its sole provider to access AI models. You'll need a Replicate API key to use the app.
 
-| Model | Replicate model | Reference images | Notes |
-|-------|-----------------|------------------|-------|
-| Gemini 2.5 | `google/nano-banana` | up to 6 | |
-| Gemini 3.0 Pro | `google/nano-banana-pro` | up to 14 | 1K / 2K / 4K output |
-| Gemini 3.1 Flash | `google/nano-banana-2` | up to 14 | 1K / 2K / 4K output; widest aspect range (1:8 → 8:1) |
-| GPT Image 1.5 | `openai/gpt-image-1.5` | up to 10 | Quality, background, input fidelity; batches server-side |
-| GPT Image 2 | `openai/gpt-image-2` | up to 10 | Quality, background incl. transparent; batches server-side |
-| Qwen Image | `qwen/qwen-image` | 1 | |
-| Qwen Image 2512 | `qwen/qwen-image-2512` | 1 | |
-| Z-Image Turbo | `prunaai/z-image-turbo` | 1 | |
-| FLUX.2 Pro | `black-forest-labs/flux-2-pro` | 1 | Prompt strength control |
-| FLUX.2 Max | `black-forest-labs/flux-2-max` | 1 | Prompt strength control |
-| Remove Background | `bria/remove-background` | — | Background removal, not text-to-image |
+| Model | Replicate model | Reference images | Price per image* | Notes |
+|-------|-----------------|------------------|------------------|-------|
+| Gemini 2.5 | `google/nano-banana` | up to 6 | $0.039 | |
+| Gemini 3.0 Pro | `google/nano-banana-pro` | up to 14 | $0.15 (1K/2K), $0.30 (4K) | 1K / 2K / 4K output |
+| Gemini 3.1 Flash | `google/nano-banana-2` | up to 14 | $0.067 (1K), $0.101 (2K), $0.151 (4K) | 1K / 2K / 4K output; widest aspect range (1:8 → 8:1) |
+| GPT Image 1.5 | `openai/gpt-image-1.5` | up to 10 | $0.013 – $0.136 by quality | Quality, background, input fidelity; batches server-side |
+| GPT Image 2 | `openai/gpt-image-2` | up to 10 | $0.012 – $0.128 by quality | Quality, background incl. transparent; batches server-side |
+| GPT Image 2.5 Sunburst | `openai/gpt-image-2.5-sunburst` | up to 10 | $0.012 – $0.50 by quality | OpenAI's most capable; adds `xhigh` and `max` quality |
+| GPT Image 2.5 Flare | `openai/gpt-image-2.5-flare` | up to 10 | $0.012 – $0.50 by quality | OpenAI's fastest; same controls as Sunburst |
+| Qwen Image | `qwen/qwen-image` | 1 | $0.025 | |
+| Qwen Image 2512 | `qwen/qwen-image-2512` | 1 | $0.02 | |
+| Z-Image Turbo | `prunaai/z-image-turbo` | 1 | ~$0.005 | Billed by output megapixels |
+| FLUX.2 Pro | `black-forest-labs/flux-2-pro` | 1 | ~$0.03 | Prompt strength control; billed per run plus megapixels |
+| FLUX.2 Max | `black-forest-labs/flux-2-max` | 1 | ~$0.07 | Prompt strength control; billed per run plus megapixels |
+| Remove Background | `bria/remove-background` | — | $0.018 | Background removal, not text-to-image |
+
+\* Replicate's listed prices as of September 2026. The app multiplies the per-image price by the number of images
+and shows the total next to the Generate button and on each Activity entry. Prices marked `~` depend on the output
+size, which the app can't know in advance. These are estimates — your Replicate billing page is the source of truth.
+Turn them off under **Settings → Generation → Show cost estimates**.
 
 Any model can be hidden from the picker under **Settings → Models**.
 
@@ -111,11 +119,35 @@ copy.
 | `staticInputs` | object | Literal values always sent with the request, e.g. `{ "output_format": "png" }` |
 | `parameters` | array | User-facing controls, see below |
 | `visibleByDefault` | bool | Omit (or `true`) to show the model in a fresh install's picker. `false` starts it hidden, still switchable under **Settings → Models** |
+| `cost` | number or object | Price per output image in USD, see below. Omit and the app shows no estimate for this model |
 
-All fields except `nativeBatchKey`, `referenceKey`, and `visibleByDefault` must be present — arrays and objects may be empty, but not omitted.
+All fields except `nativeBatchKey`, `referenceKey`, `visibleByDefault`, and `cost` must be present — arrays and objects may be empty, but not omitted.
 
-Out of the box the picker shows Gemini 3.0 Pro, Gemini 3.1 Flash, and GPT Image 2; the rest ship hidden. Once you
-change any toggle in **Settings → Models**, your choice sticks and these defaults no longer apply.
+Out of the box the picker shows Gemini 3.0 Pro, Gemini 3.1 Flash, GPT Image 2, GPT Image 2.5 Sunburst, and GPT Image
+2.5 Flare; the rest ship hidden. Once you change any toggle in **Settings → Models**, your choice sticks and these
+defaults no longer apply.
+
+### Cost
+
+A flat price is just a number:
+
+```json
+"cost": 0.039
+```
+
+When the price depends on the resolution or on a parameter, use an object. `perImage` is the fallback; tiers override
+it, and a parameter tier wins over a resolution tier:
+
+```json
+"cost": { "perImage": 0.15, "byResolution": { "1K": 0.15, "2K": 0.15, "4K": 0.30 } }
+
+"cost": { "perImage": 0.128, "parameterKey": "quality",
+          "byParameterValue": { "auto": 0.128, "high": 0.128, "medium": 0.047, "low": 0.012 } }
+```
+
+`byResolution` keys must appear in `resolutions`, and `byParameterValue` keys must be options of the `parameterKey`
+picker. Set `"approximate": true` when the real bill depends on something the app can't see, such as output
+megapixels; the estimate is then shown with a `~`.
 
 ### Parameter controls
 

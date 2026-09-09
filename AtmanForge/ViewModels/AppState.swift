@@ -103,6 +103,12 @@ class AppState {
         set { UserDefaults.standard.set(newValue, forKey: "thumbnailMaxPixelSize") }
     }
 
+    /// Show USD estimates next to Generate and in Activity. Prices come from
+    /// each model's `cost` entry in Models.json.
+    var showCostEstimates: Bool = UserDefaults.standard.object(forKey: "showCostEstimates") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showCostEstimates, forKey: "showCostEstimates") }
+    }
+
     var thumbnailMigrationProgress: Double?
 
     var hiddenModels: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "hiddenModels") ?? []) {
@@ -115,6 +121,21 @@ class AppState {
 
     var selectedModel: ModelDefinition? {
         ModelRegistry.shared.model(id: selectedModelID)
+    }
+
+    /// What the current sidebar settings would cost, or nil when the model
+    /// lists no price. Uses the same defaults `generateImage()` would send.
+    var estimatedCostForCurrentSettings: Double? {
+        guard let model = selectedModel else { return nil }
+        var params: [String: ParameterValue] = [:]
+        for spec in model.parameters {
+            params[spec.key] = parameterValues[spec.key] ?? spec.defaultValue
+        }
+        return model.estimatedCost(
+            imageCount: imageCount,
+            resolution: model.supportsResolution ? selectedResolution : nil,
+            parameters: params
+        )
     }
 
     // MARK: - AI Generation
@@ -913,6 +934,8 @@ class AppState {
             imageCount: imageCount,
             parameters: parameters
         )
+        let unitCost = model.cost?.unitCost(resolution: resolution, parameters: parameters)
+        job.estimatedCost = unitCost.map { $0 * Double(imageCount) }
         withAnimation(.easeInOut(duration: 0.2)) {
             generationJobs.insert(job, at: 0)
         }
@@ -977,6 +1000,9 @@ class AppState {
                 job.thumbnailPaths = saved.thumbnailPaths
                 job.completedAt = Date()
                 job.status = .completed
+                // Replicate bills official models per output image, so charge
+                // for what came back rather than what was asked for.
+                job.estimatedCost = unitCost.map { $0 * Double(saved.imagePaths.count) }
                 imageVersion += 1
 
                 // Handle partial failures: create a separate failed job for the errors
@@ -1015,6 +1041,7 @@ class AppState {
                 if job.status != .cancelled {
                     job.completedAt = Date()
                     job.status = .failed
+                    job.estimatedCost = nil
                     job.errorMessage = error.localizedDescription
                     errorMessage = error.localizedDescription
                     statusMessage = "Generation failed."
@@ -1076,6 +1103,7 @@ class AppState {
             parameters: [:]
         )
         bgJob.referenceImagePaths = refResult.paths
+        bgJob.estimatedCost = bgModel.estimatedCost(imageCount: 1, resolution: nil, parameters: [:])
         bgJob.startedAt = Date()
         bgJob.status = .running
         generationJobs.insert(bgJob, at: 0)
@@ -1134,6 +1162,7 @@ class AppState {
             } catch {
                 bgJob.completedAt = Date()
                 bgJob.status = .failed
+                bgJob.estimatedCost = nil
                 bgJob.errorMessage = error.localizedDescription
                 errorMessage = error.localizedDescription
                 statusMessage = "Background removal failed."

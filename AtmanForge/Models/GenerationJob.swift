@@ -21,6 +21,9 @@ class GenerationJob: Identifiable {
     var referenceImagePaths: [String] = []
     var errorMessage: String?
     var requestParamsJSON: String?
+    /// USD estimate from the model's listed price at the time the job ran, so
+    /// old activity keeps the price it was billed at. Nil when unknown.
+    var estimatedCost: Double?
 
     var cancelURLs: [String] = []
     var startedAt: Date?
@@ -47,6 +50,17 @@ class GenerationJob: Identifiable {
     var displayName: String {
         model?.displayName ?? modelID
     }
+
+    /// Cost to show in the UI: the stored estimate, or one recomputed from the
+    /// current model list for jobs saved before prices existed.
+    var displayCost: Double? {
+        if let estimatedCost { return estimatedCost }
+        guard status == .completed || status == .running || status == .pending else { return nil }
+        let count = status == .completed && !savedImagePaths.isEmpty ? savedImagePaths.count : imageCount
+        return model?.estimatedCost(imageCount: count, resolution: resolution, parameters: parameters)
+    }
+
+    var isCostApproximate: Bool { model?.cost?.isApproximate ?? false }
 
     init(modelID: String, prompt: String, projectID: String,
          aspectRatio: AspectRatio, resolution: ImageResolution?,
@@ -80,6 +94,7 @@ class GenerationJob: Identifiable {
         self.startedAt = record.startedAt
         self.completedAt = record.completedAt
         self.requestParamsJSON = record.requestParamsJSON
+        self.estimatedCost = record.estimatedCost
     }
 
     func toRecord() -> ActivityRecord {
@@ -91,7 +106,8 @@ class GenerationJob: Identifiable {
             thumbnailPaths: thumbnailPaths, referenceImagePaths: referenceImagePaths,
             errorMessage: errorMessage,
             startedAt: startedAt, completedAt: completedAt,
-            requestParamsJSON: requestParamsJSON
+            requestParamsJSON: requestParamsJSON,
+            estimatedCost: estimatedCost
         )
     }
 
@@ -169,6 +185,7 @@ struct ActivityRecord: Codable {
     let startedAt: Date?
     let completedAt: Date?
     let requestParamsJSON: String?
+    let estimatedCost: Double?
 
     init(id: UUID, modelID: String, prompt: String, projectID: String,
          createdAt: Date, aspectRatio: AspectRatio, resolution: ImageResolution?,
@@ -176,7 +193,8 @@ struct ActivityRecord: Codable {
          status: GenerationJob.Status,
          savedImagePaths: [String], thumbnailPaths: [String], referenceImagePaths: [String] = [],
          errorMessage: String?,
-         startedAt: Date? = nil, completedAt: Date? = nil, requestParamsJSON: String? = nil) {
+         startedAt: Date? = nil, completedAt: Date? = nil, requestParamsJSON: String? = nil,
+         estimatedCost: Double? = nil) {
         self.id = id
         self.modelID = modelID
         self.prompt = prompt
@@ -194,13 +212,14 @@ struct ActivityRecord: Codable {
         self.startedAt = startedAt
         self.completedAt = completedAt
         self.requestParamsJSON = requestParamsJSON
+        self.estimatedCost = estimatedCost
     }
 
     enum CodingKeys: String, CodingKey {
         case id, prompt, projectID, createdAt, aspectRatio, resolution
         case imageCount, status, savedImagePaths, thumbnailPaths
         case referenceImagePaths, errorMessage, startedAt, completedAt
-        case requestParamsJSON, parameters
+        case requestParamsJSON, parameters, estimatedCost
         case modelID = "model"
         // legacy
         case gptQuality, gptBackground, gptInputFidelity
@@ -224,6 +243,7 @@ struct ActivityRecord: Codable {
         startedAt = try c.decodeIfPresent(Date.self, forKey: .startedAt)
         completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
         requestParamsJSON = try c.decodeIfPresent(String.self, forKey: .requestParamsJSON)
+        estimatedCost = try c.decodeIfPresent(Double.self, forKey: .estimatedCost)
         parameters = ActivityRecord.decodeParameters(from: c)
     }
 
@@ -246,6 +266,7 @@ struct ActivityRecord: Codable {
         try c.encodeIfPresent(startedAt, forKey: .startedAt)
         try c.encodeIfPresent(completedAt, forKey: .completedAt)
         try c.encodeIfPresent(requestParamsJSON, forKey: .requestParamsJSON)
+        try c.encodeIfPresent(estimatedCost, forKey: .estimatedCost)
     }
 
     static func decodeParameters(from c: KeyedDecodingContainer<CodingKeys>) -> [String: ParameterValue] {
@@ -327,5 +348,15 @@ struct ImageMeta: Codable {
         try c.encode(parameters, forKey: .parameters)
         try c.encode(referenceHashes, forKey: .referenceHashes)
         try c.encode(createdAt, forKey: .createdAt)
+    }
+}
+
+enum CostFormatter {
+    /// "$0.51", "$0.012", "~$0.03". Two decimals normally, three when the
+    /// amount is under a cent so sub-cent prices don't round to "$0.01".
+    static func string(_ usd: Double, approximate: Bool = false) -> String {
+        let decimals = usd > 0 && usd < 0.01 ? 3 : 2
+        let number = String(format: "%.\(decimals)f", usd)
+        return (approximate ? "~$" : "$") + number
     }
 }

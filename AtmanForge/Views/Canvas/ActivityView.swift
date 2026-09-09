@@ -163,6 +163,15 @@ struct ActivityView: View {
                             .foregroundStyle(job.statusColor)
                     }
                     Spacer()
+                    if appState.showCostEstimates, let cost = job.displayCost {
+                        Text(CostFormatter.string(cost, approximate: job.isCostApproximate))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                            .help(job.isCostApproximate
+                                  ? "Rough estimate: this model is billed by output size"
+                                  : "Estimated from Replicate's listed price")
+                    }
                     if job.status == .running || job.status == .pending {
                         elapsedTimeView(job: job)
                     } else if let elapsed = job.elapsedTime, job.startedAt != nil {

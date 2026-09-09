@@ -297,6 +297,18 @@ struct AIGenerationPanel: View {
             .controlSize(.large)
             .disabled(appState.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
+            if appState.showCostEstimates, let cost = appState.estimatedCostForCurrentSettings {
+                let approximate = model?.cost?.isApproximate ?? false
+                Text(costLabel(cost, count: appState.imageCount, approximate: approximate))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .frame(maxWidth: .infinity)
+                    .help(approximate
+                          ? "Rough estimate: this model is billed by output size"
+                          : "Estimated from Replicate's listed price")
+            }
+
             if let error = appState.errorMessage {
                 HStack(alignment: .top, spacing: 4) {
                     Text(error)
@@ -370,6 +382,13 @@ struct AIGenerationPanel: View {
         .onChange(of: appState.referenceImages) {
             appState.commitUndoCheckpoint()
         }
+    }
+
+    private func costLabel(_ cost: Double, count: Int, approximate: Bool) -> String {
+        let total = CostFormatter.string(cost, approximate: approximate)
+        guard count > 1 else { return "Est. cost \(total)" }
+        let each = CostFormatter.string(cost / Double(count), approximate: approximate)
+        return "Est. cost \(total) (\(count) × \(each))"
     }
 
     // MARK: - Generic Parameter Controls

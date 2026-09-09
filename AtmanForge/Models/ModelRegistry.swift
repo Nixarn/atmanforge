@@ -75,6 +75,66 @@ struct ParameterSpec: Codable, Identifiable {
     }
 }
 
+/// What one output image costs in USD, per Replicate's listed pricing. Prices
+/// change; treat the result as an estimate, and pass `approximate` when the
+/// real bill depends on something the app can't see (output megapixels).
+///
+/// JSON accepts a bare number (`"cost": 0.039`) or an object:
+/// `{ "perImage": 0.128, "byResolution": {...}, "parameterKey": "quality",
+///    "byParameterValue": {...}, "approximate": true }`.
+struct CostSpec: Codable, Equatable {
+    /// USD per output image when no tier below matches.
+    let perImage: Double
+    /// Resolution tier ("1K") -> USD per image. Overrides `perImage`.
+    let byResolution: [String: Double]?
+    /// Parameter whose chosen value selects a tier in `byParameterValue`.
+    let parameterKey: String?
+    /// Parameter value ("high") -> USD per image. Overrides `perImage`.
+    let byParameterValue: [String: Double]?
+    /// The listed price varies with something the app doesn't control.
+    let approximate: Bool?
+
+    var isApproximate: Bool { approximate ?? false }
+
+    init(perImage: Double, byResolution: [String: Double]? = nil,
+         parameterKey: String? = nil, byParameterValue: [String: Double]? = nil,
+         approximate: Bool? = nil) {
+        self.perImage = perImage
+        self.byResolution = byResolution
+        self.parameterKey = parameterKey
+        self.byParameterValue = byParameterValue
+        self.approximate = approximate
+    }
+
+    init(from decoder: Decoder) throws {
+        if let single = try? decoder.singleValueContainer(), let flat = try? single.decode(Double.self) {
+            self.init(perImage: flat)
+            return
+        }
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            perImage: try c.decode(Double.self, forKey: .perImage),
+            byResolution: try c.decodeIfPresent([String: Double].self, forKey: .byResolution),
+            parameterKey: try c.decodeIfPresent(String.self, forKey: .parameterKey),
+            byParameterValue: try c.decodeIfPresent([String: Double].self, forKey: .byParameterValue),
+            approximate: try c.decodeIfPresent(Bool.self, forKey: .approximate)
+        )
+    }
+
+    /// USD for one image at the given settings. Parameter tiers win over
+    /// resolution tiers; both fall back to `perImage`.
+    func unitCost(resolution: ImageResolution?, parameters: [String: ParameterValue]) -> Double {
+        if let key = parameterKey, let tiers = byParameterValue,
+           let value = parameters[key]?.stringValue, let price = tiers[value] {
+            return price
+        }
+        if let resolution, let price = byResolution?[resolution.rawValue] {
+            return price
+        }
+        return perImage
+    }
+}
+
 struct ModelDefinition: Codable, Identifiable, Hashable {
     let id: String
     let displayName: String
@@ -98,6 +158,9 @@ struct ModelDefinition: Codable, Identifiable, Hashable {
     /// Aspect ratio -> resolution -> the literal value to send for `sizeKey`.
     /// Sparse on purpose: gpt-image-2 offers 4K at 16:9 but not at 1:1.
     let sizeMatrix: [String: [String: String]]?
+    /// Listed Replicate price per output image. Omit when unknown; the app
+    /// then shows no estimate for this model.
+    let cost: CostSpec?
 
     /// Whether a fresh install shows this model before the user touches
     /// Settings -> Models. Hidden models are still selectable by un-hiding them.
@@ -134,6 +197,14 @@ struct ModelDefinition: Codable, Identifiable, Hashable {
             return resolution.displayName
         }
         return "\(resolution.displayName) (\(dims.width)×\(dims.height))"
+    }
+
+    /// Estimated USD for `imageCount` images at these settings, or nil when the
+    /// model lists no price.
+    func estimatedCost(imageCount: Int, resolution: ImageResolution?,
+                       parameters: [String: ParameterValue]) -> Double? {
+        guard let cost else { return nil }
+        return cost.unitCost(resolution: resolution, parameters: parameters) * Double(imageCount)
     }
 
     static func parseSize(_ size: String) -> (width: Int, height: Int)? {
@@ -323,6 +394,7 @@ final class ModelRegistry {
                 throw RegistryError.validation("\(m.id): \"maxReferenceImages\" must be ≥ 0")
             }
             try validateSizeMatrix(m)
+            try validateCost(m)
             var paramKeys = Set<String>()
             for spec in m.parameters {
                 if !paramKeys.insert(spec.key).inserted {
@@ -374,6 +446,45 @@ final class ModelRegistry {
         }
         for ratio in m.aspectRatios where matrix[ratio.rawValue] == nil {
             throw RegistryError.validation("\(m.id): sizeMatrix has no entry for aspect ratio \"\(ratio.rawValue)\"")
+        }
+    }
+
+    private static func validateCost(_ m: ModelDefinition) throws {
+        guard let cost = m.cost else { return }
+        if cost.perImage < 0 {
+            throw RegistryError.validation("\(m.id): cost \"perImage\" must be ≥ 0")
+        }
+        for (resKey, price) in cost.byResolution ?? [:] {
+            guard let res = ImageResolution(rawValue: resKey) else {
+                throw RegistryError.validation("\(m.id): cost.byResolution has unknown resolution \"\(resKey)\"")
+            }
+            guard m.resolutions.contains(res) else {
+                throw RegistryError.validation(
+                    "\(m.id): cost.byResolution lists \"\(resKey)\", which is not in \"resolutions\"")
+            }
+            if price < 0 {
+                throw RegistryError.validation("\(m.id): cost.byResolution[\(resKey)] must be ≥ 0")
+            }
+        }
+        if cost.parameterKey != nil || cost.byParameterValue != nil {
+            guard let key = cost.parameterKey, !key.isEmpty else {
+                throw RegistryError.validation("\(m.id): cost.byParameterValue requires a non-empty \"parameterKey\"")
+            }
+            guard let tiers = cost.byParameterValue, !tiers.isEmpty else {
+                throw RegistryError.validation("\(m.id): cost.parameterKey requires a non-empty \"byParameterValue\"")
+            }
+            guard let spec = m.parameters.first(where: { $0.key == key }) else {
+                throw RegistryError.validation("\(m.id): cost.parameterKey \"\(key)\" is not one of the model's parameters")
+            }
+            for (value, price) in tiers {
+                if let options = spec.options, !options.contains(value) {
+                    throw RegistryError.validation(
+                        "\(m.id): cost.byParameterValue lists \"\(value)\", which is not an option of \"\(key)\"")
+                }
+                if price < 0 {
+                    throw RegistryError.validation("\(m.id): cost.byParameterValue[\(value)] must be ≥ 0")
+                }
+            }
         }
     }
 
